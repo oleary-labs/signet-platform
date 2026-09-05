@@ -1,0 +1,70 @@
+# Development stack: Postgres, the platform API, and the console.
+#
+# It deliberately does not start a devnet. The protocol's own
+# `devnet/start.sh` brings up Anvil, the contracts, three nodes, and a
+# bootstrap group; point FACTORY_ADDRESS and friends at that once it is running.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: signet
+      POSTGRES_PASSWORD: signet
+      POSTGRES_DB: signet_platform
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signet -d signet_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # 8080 is taken by signetd in a local devnet.
+      PORT: "8088"
+      ENV: development
+      DATABASE_URL: postgres://signet:signet@postgres:5432/signet_platform?sslmode=disable
+      # Development only. Generate a real one with `openssl rand -base64 48`.
+      SESSION_SECRET: dev-only-session-secret-change-me-before-anything-real
+      CORS_ORIGINS: http://localhost:3000
+      PUBLIC_WEB_URL: http://localhost:3000
+      SIWE_DOMAIN: localhost:3000
+      IN_PRODUCTION: "false"
+      # host.docker.internal reaches a devnet running on the host.
+      RPC_URL: http://host.docker.internal:8545
+      CHAIN_ID: "31337"
+      # Fill these in from `devnet/start.sh` output and restart.
+      FACTORY_ADDRESS: ""
+      ENTRYPOINT_ADDRESS: ""
+      ACCOUNT_FACTORY_ADDRESS: ""
+      BOOTSTRAP_GROUP: ""
+      BOOTSTRAP_NODES: ""
+    ports:
+      - "8088:8088"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8088
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_BUNDLER_URL: http://host.docker.internal:4337
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  pgdata:

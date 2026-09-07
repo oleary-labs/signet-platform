@@ -20,3 +20,5 @@ backend/seed
 .DS_Store
 .vscode/
 .idea/
+web/tsconfig.tsbuildinfo
+web/next-env.d.ts

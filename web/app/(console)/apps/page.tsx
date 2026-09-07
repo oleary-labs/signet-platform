@@ -50,8 +50,8 @@ export default function AppsPage() {
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {apps.map((app, i) => (
-            <AppCard key={app.id} app={app} index={i} />
+          {apps.map((app) => (
+            <AppCard key={app.id} app={app} />
           ))}
         </div>
       )}
@@ -59,12 +59,15 @@ export default function AppsPage() {
   );
 }
 
-function AppCard({ app, index }: { app: App; index: number }) {
+// No .fx here: the reveal system belongs to the marketing site, and the
+// console mounts no <ScrollFX /> to undo it. A dashboard list should also just
+// be present when the data arrives rather than fading in on scroll.
+function AppCard({ app }: { app: App }) {
   const operational = app.is_operational;
   return (
     <Link
       href={`/apps/${app.id}`}
-      className={`fx fx-d${(index % 4) + 1} card block p-5 transition hover:shadow-pop`}
+      className="card block p-5 transition hover:shadow-pop"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

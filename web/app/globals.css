@@ -76,16 +76,23 @@ textarea:focus-visible,
 /* ─────────────────────── Reveal system ───────────────────────
    .fx rise+fade · .fx-scale rise+scale · .fx-d1..4 stagger.
    <ScrollFX /> adds .in when an element first enters the viewport.
-   No animation library — the same approach THASSA's site uses.      */
-.fx,
-.fx-scale {
+   No animation library — the same approach THASSA's site uses.
+
+   The hidden state is gated on html.fx-ready, set by an inline script in
+   the root layout before first paint. Ungated, anything tagged .fx sits at
+   opacity 0 whenever the script that reveals it does not run — which is
+   every .fx outside a subtree containing <ScrollFX />, and every visitor
+   with JavaScript off. Failing to a visible element with no animation is
+   always better than failing to a blank screen.                     */
+.fx-ready .fx,
+.fx-ready .fx-scale {
   opacity: 0;
   transform: translateY(34px);
   transition:
     opacity 0.75s var(--ease),
     transform 0.75s var(--ease);
 }
-.fx-scale {
+.fx-ready .fx-scale {
   transform: translateY(26px) scale(0.96);
 }
 .fx.in,

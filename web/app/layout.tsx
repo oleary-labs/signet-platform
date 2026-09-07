@@ -52,6 +52,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `(function(){try{var t=localStorage.getItem('signet_platform_theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);}catch(e){}})();`,
           }}
         />
+        {/*
+          Arm the reveal system before first paint. The .fx hidden state keys
+          off this class, so with scripting off nothing is ever hidden — the
+          page renders complete without the animation instead of blank. Note
+          that arming it is not the same as revealing it: an .fx element still
+          needs a <ScrollFX /> above it to receive .in, so do not tag one
+          outside a layout that mounts it.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.documentElement.classList.add('fx-ready');`,
+          }}
+        />
       </head>
       <body className={`${inter.variable} ${mono.variable} font-sans antialiased`}>
         <Providers>{children}</Providers>

@@ -175,7 +175,7 @@ section that has no equivalent there: **the signing group**. That is where the
 operator set and threshold live, and it sits above settings because it is the
 reason to be here.
 
-Design tokens are Signet's own, carried over from `signet-ui`: slate-blue
+Design tokens are Signet's own, carried over from the earlier console: slate-blue
 primary, sunset-orange accent, warm-stone neutrals. The surface and motion
 vocabulary follows the house style in `../THASSA` and `../ASSEMBLY` — an
 IntersectionObserver reveal system, scroll-snapped landing sections, no
@@ -221,7 +221,7 @@ screen imply money is moving.
 | [signet-circuits](https://github.com/oleary-labs/signet-circuits) | The Noir circuit proving an OAuth credential |
 | [signet-wallet](https://github.com/oleary-labs/signet-wallet) | Smart account and on-chain FROST verifier |
 | [signet-min-bundler](https://github.com/oleary-labs/signet-min-bundler) | Minimal ERC-4337 bundler and server-side prover |
-| [signet-ui](https://github.com/oleary-labs/signet-ui) | The earlier console this platform supersedes |
+| [`archive/console-v1`](https://github.com/oleary-labs/signet-platform/tree/archive/console-v1) | The earlier console this platform supersedes, kept on a branch of this repository |
 
 [`FEATURE_EXPANSION.md`](FEATURE_EXPANSION.md) lists the node-level gaps found
 while building this — what the console can describe but the network cannot yet

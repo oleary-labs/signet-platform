@@ -105,7 +105,7 @@ add more than it removes.
 layer, `@apply w-full` inside `.select` beats a `w-auto` utility on the element
 purely by source order, and width overrides silently stop working.
 
-**Design tokens are Signet's own**, carried over from `signet-ui`: slate-blue
+**Design tokens are Signet's own**, carried over from the earlier console (`archive/console-v1`): slate-blue
 primary, sunset-orange accent, warm-stone neutrals. Accent is for the one
 action that matters on a screen, plus selected and warning states. The motion
 and surface vocabulary follows `../THASSA` and `../ASSEMBLY`.

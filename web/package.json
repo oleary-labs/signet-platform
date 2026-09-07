@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "NEXT_DIST_DIR=.next-build next build",
-    "start": "NEXT_DIST_DIR=.next-build next start",
+    "build": "next build",
+    "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:local": "NEXT_DIST_DIR=.next-build next build",
+    "start:local": "NEXT_DIST_DIR=.next-build next start"
   },
   "dependencies": {
     "@noble/curves": "^1.9.7",

@@ -33,8 +33,11 @@ import type {
 } from "./types";
 import type { SignedUserOp } from "./userop";
 
+// 8088, not 8080: signetd binds 8080 in a local devnet, so the platform API
+// sits above it. A wrong default here fails as requests that quietly go to a
+// node and 404 rather than as a missing-configuration error.
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8080";
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8088";
 
 export class ApiError extends Error {
   status: number;

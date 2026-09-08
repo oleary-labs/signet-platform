@@ -81,19 +81,35 @@ func (s *Store) UpdateProfile(ctx context.Context, id uuid.UUID, displayName, em
 	return &u, nil
 }
 
-// PromoteStaffByEmail grants staff to configured emails that already have a
-// row. Emails that have never signed in are handled at login instead.
-func (s *Store) PromoteStaffByEmail(ctx context.Context, emails []string) (int64, error) {
-	if len(emails) == 0 {
-		return 0, nil
+// SyncStaffBySubject makes the users table agree with the configured staff
+// list, granting to subjects that are on it and revoking from those that are
+// not.
+//
+// Revocation is the half worth being deliberate about. Sign-in can only ever
+// grant — its upsert ORs the flag so a login never clears rights someone was
+// given — which means removing a subject from the configuration would
+// otherwise leave them staff forever. Reconciling here makes the environment
+// authoritative, and an empty list correctly means nobody is staff.
+//
+// Returns the counts separately so a boot that quietly removes someone's
+// rights says so in the log.
+func (s *Store) SyncStaffBySubject(ctx context.Context, subjects []string) (granted, revoked int64, err error) {
+	if subjects == nil {
+		subjects = []string{}
 	}
-	tag, err := s.pool.Exec(ctx,
+	grant, err := s.pool.Exec(ctx,
 		`UPDATE users SET is_staff=true, updated_at=now()
-		 WHERE lower(email::text) = ANY($1) AND is_staff=false`, emails)
+		 WHERE lower(subject) = ANY($1) AND is_staff=false`, subjects)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return tag.RowsAffected(), nil
+	revoke, err := s.pool.Exec(ctx,
+		`UPDATE users SET is_staff=false, updated_at=now()
+		 WHERE NOT (lower(subject) = ANY($1)) AND is_staff=true`, subjects)
+	if err != nil {
+		return grant.RowsAffected(), 0, err
+	}
+	return grant.RowsAffected(), revoke.RowsAffected(), nil
 }
 
 // ─────────────────────────── Login challenges ───────────────────────────

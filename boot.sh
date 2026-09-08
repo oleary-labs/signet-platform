@@ -699,7 +699,7 @@ add     BACKEND_ENV backend/.env SESSION_SECRET "${SESSION_SECRET:-dev-only-sess
 add     BACKEND_ENV backend/.env INGEST_KEY "${INGEST_KEY:-dev-ingest-key}"
 add     BACKEND_ENV backend/.env HEALTH_PROBE_SECONDS 120
 add     BACKEND_ENV backend/.env CHAIN_SYNC_SECONDS 20
-add_opt BACKEND_ENV backend/.env STAFF_EMAILS "${STAFF_EMAILS:-}"
+add_opt BACKEND_ENV backend/.env STAFF_SUBJECTS "${STAFF_SUBJECTS:-}"
 
 WEB_ENV=()
 force   WEB_ENV NEXT_PUBLIC_API_URL "http://localhost:${BACKEND_PORT}"

@@ -83,10 +83,13 @@ func main() {
 
 	srv := api.New(cfg, pool, assets, chainClient, certs)
 
-	if n, err := srv.Store().PromoteStaffByEmail(ctx, cfg.StaffEmails); err != nil {
-		slog.Error("staff promotion failed", "error", err)
-	} else if n > 0 {
-		slog.Info("granted platform staff", "users", n)
+	// Reconcile staff with the environment. Sign-in grants on its own, so this
+	// exists mainly for the other direction: a subject removed from the list
+	// loses the flag here rather than keeping it until someone notices.
+	if granted, revoked, err := srv.Store().SyncStaffBySubject(ctx, cfg.StaffSubjects); err != nil {
+		slog.Error("staff reconciliation failed", "error", err)
+	} else if granted > 0 || revoked > 0 {
+		slog.Info("reconciled platform staff", "granted", granted, "revoked", revoked)
 	}
 
 	startBackgroundJobs(ctx, cfg, srv)

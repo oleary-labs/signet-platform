@@ -195,7 +195,12 @@ func (s *Server) handleAuthVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.db.UpsertUser(r.Context(), subject, methodKind(req.Method), accountAddress, groupPublicKey, false)
+	// Staff is decided from the subject the signature just established, so a
+	// newly listed operator is staff on their next sign-in rather than on the
+	// next deploy. The upsert only ever ORs this in; revocation is handled by
+	// the reconciliation at boot.
+	user, err := s.db.UpsertUser(r.Context(), subject, methodKind(req.Method), accountAddress, groupPublicKey,
+		s.cfg.IsStaffSubject(subject))
 	if err != nil {
 		respond.Fail(w, r, http.StatusInternalServerError, "could not open your account", err)
 		return

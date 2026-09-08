@@ -84,9 +84,15 @@ type Config struct {
 	// disables ingest entirely rather than leaving it open.
 	IngestKey string
 
-	// Emails granted platform-staff rights on boot and at login. Staff curate
-	// the node-operator marketplace; they are not org admins by default.
-	StaffEmails []string
+	// Login subjects granted platform-staff rights. Staff curate the
+	// node-operator marketplace; they are not org admins by default.
+	//
+	// Subjects, not emails, because a subject is proved at sign-in and an
+	// email is not. users.email is an unverified profile string with no
+	// uniqueness constraint, so gating on it let anyone who could reach the
+	// console claim a staff address and be promoted. A subject is the
+	// identity the signature actually established.
+	StaffSubjects []string
 
 	// Node health probing interval in seconds; 0 disables the prober.
 	HealthProbeSecs int
@@ -144,7 +150,7 @@ func Load() *Config {
 
 		IngestKey: os.Getenv("INGEST_KEY"),
 
-		StaffEmails: lowerList(splitList(os.Getenv("STAFF_EMAILS"))),
+		StaffSubjects: normalizeSubjects(splitList(os.Getenv("STAFF_SUBJECTS"))),
 
 		HealthProbeSecs: getInt("HEALTH_PROBE_SECONDS", 120),
 		ChainSyncSecs:   getInt("CHAIN_SYNC_SECONDS", 60),
@@ -208,4 +214,62 @@ func lowerList(in []string) []string {
 		out[i] = strings.ToLower(strings.TrimSpace(s))
 	}
 	return out
+}
+
+// normalizeSubjects renders configured staff entries the way sign-in stores
+// them, so a value pasted from a block explorer still matches.
+//
+// Sign-in writes "eth:" + a lower-cased address (SIWE) or "signet:" + a
+// lower-cased group public key. A checksummed address in the environment would
+// otherwise never match, and the only symptom would be a person who is
+// silently not staff. A bare address is read as the eth form, since that is
+// the only address-shaped subject there is.
+//
+// Entries that are not one of those shapes are dropped rather than kept as
+// dead strings: a typo that matches nothing should not sit in the list looking
+// like it works.
+func normalizeSubjects(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		s := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case strings.HasPrefix(s, "eth:"):
+			if addr, ok := normalizeHexAddress(strings.TrimPrefix(s, "eth:")); ok {
+				out = append(out, "eth:"+addr)
+			}
+		case strings.HasPrefix(s, "signet:"):
+			if key := strings.TrimPrefix(strings.TrimPrefix(s, "signet:"), "0x"); key != "" {
+				out = append(out, "signet:"+key)
+			}
+		default:
+			if addr, ok := normalizeHexAddress(s); ok {
+				out = append(out, "eth:"+addr)
+			}
+		}
+	}
+	return out
+}
+
+func normalizeHexAddress(s string) (string, bool) {
+	h := strings.TrimPrefix(strings.TrimSpace(s), "0x")
+	if len(h) != 40 {
+		return "", false
+	}
+	for _, c := range h {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return "", false
+		}
+	}
+	return "0x" + h, true
+}
+
+// IsStaffSubject reports whether a sign-in subject was configured as staff.
+func (c *Config) IsStaffSubject(subject string) bool {
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	for _, s := range c.StaffSubjects {
+		if s == subject {
+			return true
+		}
+	}
+	return false
 }

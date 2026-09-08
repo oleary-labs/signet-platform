@@ -30,8 +30,27 @@ type Config struct {
 	PublicWebURL string
 
 	// ── Chain / protocol wiring ────────────────────────────────────────────
-	ChainID        int64
-	RPCURL         string
+	ChainID int64
+
+	// The endpoint this server reads the chain through: group state, the node
+	// registry, and the manager check that attaching a group depends on. It
+	// carries every sync and is never published, so it is the one to point at a
+	// paid provider.
+	RPCURL string
+
+	// The endpoint the browser is told to use, published as `rpc_url` in the
+	// public network config.
+	//
+	// Separate from RPCURL because the two have opposite requirements. The
+	// public config is unauthenticated and fetched on every page load, signed in
+	// or not, so whatever is here reaches anyone who loads the site — a keyed
+	// provider URL included. Serving one variable to both consumers published
+	// the server's own credential to every visitor.
+	//
+	// Empty is the safe default: the browser needs an RPC endpoint only for the
+	// UserOperation path, and that is inert until an account factory exists.
+	PublicRPCURL string
+
 	FactoryAddress string
 	// SignetAccountFactory, which the console uses to derive the
 	// counterfactual address of a developer's smart account.
@@ -123,10 +142,11 @@ func Load() *Config {
 
 		ChainID:               int64(getInt("CHAIN_ID", 31337)),
 		RPCURL:                get("RPC_URL", "http://127.0.0.1:8545"),
+		PublicRPCURL:          os.Getenv("PUBLIC_RPC_URL"),
 		FactoryAddress:        os.Getenv("FACTORY_ADDRESS"),
 		AccountFactoryAddress: os.Getenv("ACCOUNT_FACTORY_ADDRESS"),
 		EntryPointAddress:     os.Getenv("ENTRYPOINT_ADDRESS"),
-		BundlerURL:            get("BUNDLER_URL", "http://127.0.0.1:4337"),
+		BundlerURL:            os.Getenv("BUNDLER_URL"),
 		BootstrapGroup:        os.Getenv("BOOTSTRAP_GROUP"),
 		BootstrapNodes:        splitList(os.Getenv("BOOTSTRAP_NODES")),
 		SIWEDomain:            os.Getenv("SIWE_DOMAIN"),

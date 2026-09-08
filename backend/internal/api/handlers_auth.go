@@ -301,7 +301,9 @@ func (s *Server) buildSession(r *http.Request, user *structs.User) (*structs.Ses
 func (s *Server) networkConfig() structs.NetworkConfig {
 	return structs.NetworkConfig{
 		ChainID:               s.cfg.ChainID,
-		RPCURL:                s.cfg.RPCURL,
+		// The public endpoint, not the one this server reads through — see
+		// Config.PublicRPCURL. This response is unauthenticated.
+		RPCURL:                s.cfg.PublicRPCURL,
 		FactoryAddress:        s.cfg.FactoryAddress,
 		AccountFactoryAddress: s.cfg.AccountFactoryAddress,
 		EntryPointAddress:     s.cfg.EntryPointAddress,

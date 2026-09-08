@@ -63,6 +63,14 @@ func main() {
 	}
 
 	chainClient := chain.New(cfg.RPCURL, cfg.FactoryAddress, cfg.ChainID)
+	// The browser needs an RPC endpoint only for the UserOperation path. If an
+	// account factory is configured and this is not, that path will fail at the
+	// first nonce read — say so now rather than at someone's first deploy.
+	if cfg.AccountFactoryAddress != "" && cfg.PublicRPCURL == "" {
+		slog.Warn("PUBLIC_RPC_URL is unset while an account factory is configured — " +
+			"the console cannot read the chain, so the UserOperation path will fail")
+	}
+
 	if !chainClient.Enabled() {
 		slog.Warn("chain reads are not configured — group state and the node registry will not sync",
 			"rpc_url_set", cfg.RPCURL != "", "factory_set", cfg.FactoryAddress != "")

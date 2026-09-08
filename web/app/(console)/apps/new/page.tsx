@@ -30,13 +30,38 @@ import type { NodeOperator } from "@/lib/types";
 
 type Step = "details" | "operators" | "login" | "review" | "deploy";
 
-const STEPS: { id: Step; label: string }[] = [
+/**
+ * Two ways to end up with a signing group, and they are not variations on one
+ * flow.
+ *
+ * "deploy" builds a group from this screen. "attach" adopts one that already
+ * exists on-chain, which is how any group created out of band arrives — and
+ * groups are routinely created that way, by CLI in phases across
+ * organisations, precisely so no single party holds the material.
+ *
+ * Attaching skips the operator and login steps rather than asking for values
+ * it would then discard: the contract already carries the operator set, the
+ * threshold, and the trusted issuers, and the platform reads them. It also
+ * needs no signing session, because nothing is written — the API verifies
+ * on-chain that the caller is the group's manager and records the link.
+ */
+type Mode = "deploy" | "attach";
+
+const DEPLOY_STEPS: { id: Step; label: string }[] = [
   { id: "details", label: "Details" },
   { id: "operators", label: "Operators" },
   { id: "login", label: "Login methods" },
   { id: "review", label: "Review" },
   { id: "deploy", label: "Deploy" },
 ];
+
+const ATTACH_STEPS: { id: Step; label: string }[] = [
+  { id: "details", label: "Details" },
+  { id: "review", label: "Review" },
+  { id: "deploy", label: "Link" },
+];
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 const REMOVAL_DELAYS = [
   { seconds: 0, label: "None", hint: "Removals take effect immediately. Only sensible on a devnet." },
@@ -56,6 +81,7 @@ export default function NewAppPage() {
   const { activeOrg, network, user, refresh } = useSession();
 
   const [step, setStep] = useState<Step>("details");
+  const [mode, setMode] = useState<Mode>("deploy");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   // Apps are always created in development — production is reached by
@@ -176,7 +202,12 @@ export default function NewAppPage() {
         // adds the console metadata the chain has no room for — a label, a
         // provider icon — and the platform recognises them as unchanged, so no
         // second transaction is sent.
-        for (const issuer of issuers) {
+        //
+        // Skipped when attaching. An adopted group has whatever issuers it has,
+        // and this screen never asked — recording one it does not carry would
+        // be a change, so the API would rightly demand a signed operation and
+        // fail. The group sync reads the real set instead.
+        for (const issuer of existingGroup ? [] : issuers) {
           const known = KNOWN_ISSUERS.find((k) => k.issuer === issuer);
           await api.saveIssuer(app.id, {
             issuer,
@@ -191,7 +222,12 @@ export default function NewAppPage() {
 
         setStage("done");
         await refresh();
-        toast.success(`${app.name} is live`, "Your signing group is attached and operational.");
+        toast.success(
+          `${app.name} is live`,
+          existingGroup
+            ? "The group is linked. Its operators, threshold and issuers are read from the chain."
+            : "Your signing group is attached and operational.",
+        );
         router.push(`/apps/${app.id}?created=1`);
       } catch (err) {
         setDeployError(err);
@@ -204,7 +240,17 @@ export default function NewAppPage() {
     ],
   );
 
-  const stepIndex = STEPS.findIndex((s) => s.id === step);
+  const steps = mode === "attach" ? ATTACH_STEPS : DEPLOY_STEPS;
+
+  // Attaching has no operator or login step. Choosing it while standing on one
+  // would leave stepIndex at -1, so fall back to the start of the new flow.
+  useEffect(() => {
+    if (!steps.some((s) => s.id === step)) setStep(steps[0].id);
+  }, [steps, step]);
+
+  const stepIndex = steps.findIndex((s) => s.id === step);
+  const attaching = mode === "attach";
+  const addressValid = ADDRESS_RE.test(manualAddress.trim());
   // Development groups are ours to run, and are single-operator by design —
   // requiring two there would contradict the policy on the same screen.
   const minOperators = restrictedToFirstParty ? 1 : 2;
@@ -230,7 +276,7 @@ export default function NewAppPage() {
       />
 
       <ol className="mb-8 flex flex-wrap items-center gap-x-2 gap-y-2">
-        {STEPS.map((s, i) => (
+        {steps.map((s, i) => (
           <li key={s.id} className="flex items-center gap-2">
             <button
               type="button"
@@ -257,7 +303,7 @@ export default function NewAppPage() {
               </span>
               {s.label}
             </button>
-            {i < STEPS.length - 1 ? <span className="text-faint">→</span> : null}
+            {i < steps.length - 1 ? <span className="text-faint">→</span> : null}
           </li>
         ))}
       </ol>
@@ -289,6 +335,50 @@ export default function NewAppPage() {
             <div>
               <span className="label">Chain</span>
               <p className="text-[13.5px] text-fg">{chainName(network?.chain_id)}</p>
+            </div>
+
+            <div>
+              <span className="label">Signing group</span>
+              <div className="mt-2 space-y-2">
+                {(
+                  [
+                    {
+                      id: "deploy" as Mode,
+                      title: "Create a new group",
+                      body: "Pick operators and a threshold here. Your smart wallet deploys the group and is its manager from the first block.",
+                    },
+                    {
+                      id: "attach" as Mode,
+                      title: "Link a group that already exists",
+                      body: "For a group deployed out of band — by CLI, or across organisations. Its operators, threshold and issuers are read from the chain, so this wizard does not ask for them.",
+                    },
+                  ] satisfies { id: Mode; title: string; body: string }[]
+                ).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setMode(option.id)}
+                    className={`block w-full rounded-xl border p-4 text-left transition ${
+                      mode === option.id
+                        ? "border-accent-500 bg-accent-500/[0.06]"
+                        : "border-fg/15 hover:border-fg/30"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-[13.5px] font-semibold text-fg">
+                      <span
+                        aria-hidden="true"
+                        className={`h-3.5 w-3.5 flex-none rounded-full border-2 ${
+                          mode === option.id ? "border-accent-500 bg-accent-500" : "border-fg/25"
+                        }`}
+                      />
+                      {option.title}
+                    </span>
+                    <span className="mt-1.5 block text-[13px] leading-relaxed text-muted">
+                      {option.body}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </Section>
@@ -427,7 +517,57 @@ export default function NewAppPage() {
         </Section>
       ) : null}
 
-      {step === "review" ? (
+      {step === "review" && attaching ? (
+        <div className="space-y-5">
+          <Section title="Review">
+            <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+              <Review label="App">{name || "—"}</Review>
+              <Review label="Environment">{environment}</Review>
+              <Review label="Chain">{chainName(network?.chain_id)}</Review>
+              <Review label="Signing group">Linking one that already exists</Review>
+            </dl>
+
+            <div className="mt-6 max-w-xl">
+              <label className="label" htmlFor="group-address">Group address</label>
+              <input
+                id="group-address"
+                className="input mono"
+                value={manualAddress}
+                onChange={(e) => setManualAddress(e.target.value)}
+                placeholder="0x…"
+                autoFocus
+                spellCheck={false}
+              />
+              <p className="mt-2 text-[13px] leading-relaxed text-muted">
+                The platform reads this group from the chain and refuses the link unless the account
+                you signed in with is its manager. A pasted address is not evidence on its own.
+              </p>
+              {manualAddress.trim() && !addressValid ? (
+                <p className="mt-2 text-[13px] text-accent-600 dark:text-accent-400">
+                  That is not a 20-byte address.
+                </p>
+              ) : null}
+            </div>
+          </Section>
+
+          <Callout
+            tone="accent"
+            title={
+              <>
+                What the chain decides, not this screen
+                <InfoTip>
+                  The operator set, threshold, removal timelock and trusted issuers all live on the
+                  group contract, and the operators read them there. Linking records the connection
+                  and syncs those values in; it changes nothing on-chain, so it needs no signature
+                  and no gas.
+                </InfoTip>
+              </>
+            }
+          />
+        </div>
+      ) : null}
+
+      {step === "review" && !attaching ? (
         <div className="space-y-5">
           <Section title="Review">
             <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
@@ -519,7 +659,7 @@ export default function NewAppPage() {
       ) : null}
 
       {step === "deploy" ? (
-        <Section title="Deploying">
+        <Section title={attaching ? "Linking" : "Deploying"}>
           {stage && stage !== "done" ? (
             <div className="space-y-3">
               <p className="text-[15px] font-medium text-fg">{DEPLOY_STAGE_COPY[stage]}</p>
@@ -550,7 +690,7 @@ export default function NewAppPage() {
                 </button>
               </div>
 
-              <div className="border-t pt-5 hairline">
+              <div className={`border-t pt-5 hairline ${attaching ? "hidden" : ""}`}>
                 <p className="text-[13.5px] font-medium text-fg">
                   Already deployed a group elsewhere?
                 </p>
@@ -586,28 +726,32 @@ export default function NewAppPage() {
             type="button"
             className="btn-ghost"
             disabled={stepIndex === 0}
-            onClick={() => setStep(STEPS[Math.max(stepIndex - 1, 0)].id)}
+            onClick={() => setStep(steps[Math.max(stepIndex - 1, 0)].id)}
           >
             Back
           </button>
           {step === "review" ? (
+            // Attaching is gated on the address alone. It writes nothing, so
+            // requiring a signing session here would block the one path that
+            // works on a deployment with no bootstrap group — which is exactly
+            // the deployment most likely to be adopting an existing group.
             <button
               type="button"
               className="btn-accent"
-              disabled={!canSign}
+              disabled={attaching ? !addressValid : !canSign}
               onClick={() => {
                 setStep("deploy");
-                deploy();
+                deploy(attaching ? manualAddress.trim() : undefined);
               }}
             >
-              Deploy signing group
+              {attaching ? "Link signing group" : "Deploy signing group"}
             </button>
           ) : (
             <button
               type="button"
               className="btn-accent"
               disabled={!canContinue}
-              onClick={() => setStep(STEPS[stepIndex + 1].id)}
+              onClick={() => setStep(steps[stepIndex + 1].id)}
             >
               Continue
             </button>

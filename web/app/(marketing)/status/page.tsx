@@ -1,14 +1,16 @@
 "use client";
 
 import { Callout, ErrorNote, PageHeader, Section, Skeleton, StatCard, StatusDot } from "@/components/ui";
-import { NodeCard } from "@/components/NodeCard";
+import { OperatorCard } from "@/components/OperatorCard";
 import { api } from "@/lib/api";
 import { useQuery } from "@/lib/hooks";
+import { describeFleet, groupByOperator } from "@/lib/operators";
 import { chainName, formatDateTime, shortAddress } from "@/lib/format";
 
 export default function StatusPage() {
   const status = useQuery(() => api.status(), []);
   const operators = useQuery(() => api.nodeOperators(), []);
+  const groups = groupByOperator(operators.data ?? []);
 
   return (
     <div className="container-page py-14">
@@ -61,12 +63,16 @@ export default function StatusPage() {
               hint="Groups deployed by the factory, across every app."
             />
             <StatCard
-              label="Operators online"
+              label="Nodes online"
               value={`${status.data.operators_online} / ${status.data.operators_listed}`}
               tone={
                 status.data.operators_online === status.data.operators_listed ? "success" : "accent"
               }
-              hint="Listed operators responding to health probes."
+              hint={
+                groups.length > 0
+                  ? `Listed nodes responding to health probes, across ${groups.length} operator${groups.length === 1 ? "" : "s"}.`
+                  : "Listed nodes responding to health probes."
+              }
             />
           </div>
 
@@ -97,11 +103,16 @@ export default function StatusPage() {
               ))}
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {(operators.data ?? []).map((o) => (
-                <NodeCard key={o.address} operator={o} href={`/marketplace/${o.address}`} />
-              ))}
-            </div>
+            <>
+              <p className="mb-4 text-[13px] text-muted">
+                {describeFleet((operators.data ?? []).length, groups.length)}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {groups.map((g) => (
+                  <OperatorCard key={g.address} group={g} />
+                ))}
+              </div>
+            </>
           )}
         </Section>
       </div>

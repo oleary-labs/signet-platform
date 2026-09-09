@@ -18,6 +18,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useQuery } from "@/lib/hooks";
+import { describeFleet, groupByOperator } from "@/lib/operators";
 import { chainName, formatNumber, formatPercent, relativeTime, shortAddress } from "@/lib/format";
 
 export default function AppOverviewPage({ params }: { params: Promise<{ appId: string }> }) {
@@ -249,7 +250,7 @@ export default function AppOverviewPage({ params }: { params: Promise<{ appId: s
             </Link>
           </Section>
 
-          <Section title="Operators">
+          <Section title="Nodes">
             {group.loading ? (
               <Skeleton className="h-24 rounded-xl" />
             ) : (group.data?.nodes.length ?? 0) === 0 ? (
@@ -257,8 +258,17 @@ export default function AppOverviewPage({ params }: { params: Promise<{ appId: s
                 No membership cached yet. Open the group screen to sync it from the chain.
               </p>
             ) : (
+              <>
+              <p className="mb-3 text-[12.5px] text-muted">
+                {describeFleet(
+                  group.data!.nodes.length,
+                  groupByOperator(
+                    group.data!.nodes.map((n) => n.operator).filter((o) => o !== null),
+                  ).length,
+                )}
+              </p>
               <ul className="space-y-2.5">
-                {group.data!.nodes.slice(0, 5).map((n) => (
+                {group.data!.nodes.map((n) => (
                   <li key={n.address} className="flex items-center justify-between gap-3">
                     <span className="flex min-w-0 items-center gap-2">
                       <StatusDot
@@ -286,6 +296,7 @@ export default function AppOverviewPage({ params }: { params: Promise<{ appId: s
                   </li>
                 ))}
               </ul>
+              </>
             )}
             <Link href={`/apps/${appId}/group`} className="btn-ghost mt-5 w-full">
               Manage the group

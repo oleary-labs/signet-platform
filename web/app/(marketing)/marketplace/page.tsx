@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { NodeCard } from "@/components/NodeCard";
+import { OperatorCard } from "@/components/OperatorCard";
+import { describeFleet, groupByOperator } from "@/lib/operators";
 import { EmptyState, ErrorNote, PageHeader, Skeleton } from "@/components/ui";
 import { useQuery } from "@/lib/hooks";
 import { api } from "@/lib/api";
@@ -47,6 +48,11 @@ export default function MarketplacePage() {
     });
     return sortOperators(list, sort);
   }, [query.data, category, openOnly, onlineOnly, search, sort]);
+
+  // Filters and sorting apply to nodes — they are per-node facts — and the
+  // operators are formed from whatever survives, so a search that matches one
+  // node shows its operator with just that node under it.
+  const groups = useMemo(() => groupByOperator(operators), [operators]);
 
   return (
     <div className="container-page py-14">
@@ -131,13 +137,18 @@ export default function MarketplacePage() {
           title="No operators match those filters"
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {operators.map((o, i) => (
-            <div key={o.address} className={`fx fx-d${(i % 4) + 1}`}>
-              <NodeCard operator={o} href={`/marketplace/${o.address}`} />
-            </div>
-          ))}
-        </div>
+        <>
+          <p className="mb-4 text-[13px] text-muted">
+            {describeFleet(operators.length, groups.length)}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {groups.map((g, i) => (
+              <div key={g.address} className={`fx fx-d${(i % 4) + 1}`}>
+                <OperatorCard group={g} />
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );

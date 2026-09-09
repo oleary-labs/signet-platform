@@ -49,7 +49,7 @@ type Mode = "deploy" | "attach";
 
 const DEPLOY_STEPS: { id: Step; label: string }[] = [
   { id: "details", label: "Details" },
-  { id: "operators", label: "Operators" },
+  { id: "operators", label: "Nodes" },
   { id: "login", label: "Login methods" },
   { id: "review", label: "Review" },
   { id: "deploy", label: "Deploy" },
@@ -588,7 +588,7 @@ export default function NewAppPage() {
             </dl>
 
             <div className="mt-6">
-              <p className="label">Operators</p>
+              <p className="label">Nodes</p>
               <ul className="space-y-2">
                 {selectedOperators.map((o) => (
                   <li
@@ -646,9 +646,9 @@ export default function NewAppPage() {
               tone="warn"
               title={
                 <>
-                  Some operators must accept first
+                  Some nodes must accept first
                   <InfoTip>
-                    Operators that are not open start pending. The group is operational once at
+                    Nodes that are not open start pending. The group is operational once at
                     least {threshold} are active; the pending list is on the group screen.
                   </InfoTip>
                 </>

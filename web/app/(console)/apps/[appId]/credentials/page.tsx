@@ -17,8 +17,8 @@ import { api } from "@/lib/api";
 import { useAction, useQuery } from "@/lib/hooks";
 import { useSession } from "@/providers/SessionProvider";
 import { useToast } from "@/providers/ToastProvider";
-import { signGroupCall, useCanSignOnchain } from "@/lib/onchain";
-import { SigningSessionNotice } from "@/components/console/SigningSessionNotice";
+import { chooseTransport, submitGroupCall, useCanSignOnchain , type Transport } from "@/lib/onchain";
+import { TransportNotice } from "@/components/console/TransportNotice";
 import { USEROP_STAGE_COPY, type UserOpStage } from "@/lib/userop";
 import { formatDateTime, relativeTime, shortHash } from "@/lib/format";
 import type { Credential } from "@/lib/types";
@@ -30,12 +30,13 @@ export default function CredentialsPage({ params }: { params: Promise<{ appId: s
 
   const creds = useQuery(() => api.credentials(appId), [appId]);
   const group = useQuery(() => api.group(appId), [appId]);
+  const canSign = useCanSignOnchain(user);
+  const transport = chooseTransport(user, group.data?.onchain?.manager, canSign);
 
   const [secretOpen, setSecretOpen] = useState(false);
   const [authKeyOpen, setAuthKeyOpen] = useState(false);
   const [revealed, setRevealed] = useState<{ title: string; value: string; note: string } | null>(null);
 
-  const canWriteChain = useCanSignOnchain(user);
   const secrets = (creds.data ?? []).filter((c) => c.kind === "app_secret");
   const authKeys = (creds.data ?? []).filter((c) => c.kind === "auth_key");
 
@@ -43,9 +44,10 @@ export default function CredentialsPage({ params }: { params: Promise<{ appId: s
   // platform's record would leave every operator still accepting it while the
   // console showed it gone.
   const [revoke, { error: revokeError }] = useAction(async (c: Credential) => {
-    const userOp =
+    const proof =
       c.kind === "auth_key" && c.onchain_status === "active" && c.key_hash && network && user
-        ? await signGroupCall({
+        ? await submitGroupCall({
+              transport,
             network,
             user,
             groupAddress: group.data?.app.group_address ?? null,
@@ -54,7 +56,7 @@ export default function CredentialsPage({ params }: { params: Promise<{ appId: s
             sponsored: group.data?.app.environment === "development",
           })
         : undefined;
-    const result = await api.revokeCredential(appId, c.id, userOp);
+    const result = await api.revokeCredential(appId, c.id, proof);
     await creds.refresh();
     toast.success(
       "Revoked",
@@ -69,7 +71,7 @@ export default function CredentialsPage({ params }: { params: Promise<{ appId: s
         info="An authorization key is registered with your operators when you add it and removed when you revoke it. App secrets live only here."
       />
 
-      {!canWriteChain ? <SigningSessionNotice what="register a key with your group" /> : null}
+      {group.data?.onchain ? <TransportNotice transport={transport} what="register a key with your group" /> : null}
 
       {revokeError ? (
         <div className="mb-5">
@@ -227,7 +229,7 @@ export default function CredentialsPage({ params }: { params: Promise<{ appId: s
         appId={appId}
         groupAddress={group.data?.app.group_address ?? null}
         sponsored={group.data?.app.environment === "development"}
-        canWriteChain={canWriteChain}
+        transport={transport}
         onCreated={(privateKey, label) => {
           setAuthKeyOpen(false);
           creds.refresh();
@@ -325,7 +327,7 @@ function NewAuthKeyModal({
   appId,
   groupAddress,
   sponsored,
-  canWriteChain,
+  transport,
   onCreated,
 }: {
   open: boolean;
@@ -333,7 +335,7 @@ function NewAuthKeyModal({
   appId: string;
   groupAddress: string | null;
   sponsored: boolean;
-  canWriteChain: boolean;
+  transport: Transport;
   onCreated: (privateKey: string, label: string) => void;
 }) {
   const { network, user } = useSession();
@@ -354,7 +356,8 @@ function NewAuthKeyModal({
     // One request: the platform registers the key with the group and records
     // it, or does neither. A key in the console that the operators never heard
     // of is worse than a failure, because it looks like it works.
-    const userOp = await signGroupCall({
+    const proof = await submitGroupCall({
+              transport,
       network,
       user,
       groupAddress,
@@ -369,7 +372,7 @@ function NewAuthKeyModal({
       kind: "auth_key",
       label,
       public_key: pubHex,
-      user_op: userOp,
+      user_op: proof,
     });
 
     setStage(null);
@@ -392,7 +395,7 @@ function NewAuthKeyModal({
           <button
             type="button"
             className="btn-accent"
-            disabled={pending || !canWriteChain}
+            disabled={pending || transport.kind === "none"}
             onClick={() => create()}
           >
             {pending ? stage ?? "Working…" : "Generate and register"}
@@ -401,15 +404,15 @@ function NewAuthKeyModal({
       }
     >
       {error ? <ErrorNote error={error} /> : null}
-      {!canWriteChain ? (
+      {transport.kind === "none" ? (
         <Callout
           tone="warn"
           title={
             <>
               This session cannot write to the chain
               <InfoTip>
-                Registering the key is an on-chain call signed by your Signet key, and this tab has
-                none. Restore signing, or add the key from your own tooling and record its public
+                Registering the key is an on-chain call, and neither route is open to you here:
+                {" "}{transport.reason} Add the key from your own tooling and record its public
                 half here afterwards.
               </InfoTip>
             </>

@@ -21,8 +21,8 @@ import { api } from "@/lib/api";
 import { useAction, useQuery, useTicker } from "@/lib/hooks";
 import { useSession } from "@/providers/SessionProvider";
 import { useToast } from "@/providers/ToastProvider";
-import { signGroupCall, useCanSignOnchain, type GroupFunction } from "@/lib/onchain";
-import { SigningSessionNotice } from "@/components/console/SigningSessionNotice";
+import { chooseTransport, submitGroupCall, useCanSignOnchain, type GroupFunction } from "@/lib/onchain";
+import { TransportNotice } from "@/components/console/TransportNotice";
 import { chainName, countdown, formatDateTime, shortAddress } from "@/lib/format";
 import type { GroupNode } from "@/lib/types";
 
@@ -43,6 +43,9 @@ export default function GroupPage({ params }: { params: Promise<{ appId: string 
   const onchain = group.data?.onchain;
   const nodes = useMemo(() => group.data?.nodes ?? [], [group.data]);
   const canSign = useCanSignOnchain(user);
+  // Which key signs is a fact about the group, not about this screen: these
+  // calls are onlyManager, so it has to come from whichever address manages it.
+  const transport = chooseTransport(user, onchain?.manager, canSign);
 
   // Every action on this screen is the same shape: sign the call with the
   // Signet key that manages this group, hand it to the platform, and re-read
@@ -53,16 +56,17 @@ export default function GroupPage({ params }: { params: Promise<{ appId: string 
       if (!network || !user || !app?.group_address) return;
       setPendingAction(label);
       try {
-        const userOp = await signGroupCall({
+        const proof = await submitGroupCall({
           network,
           user,
+          transport,
           groupAddress: app.group_address,
           functionName,
           args,
           sponsored: app.environment === "development",
         });
-        if (!userOp) throw new Error("This app has no signing group yet.");
-        await api.executeGroupCall(appId, userOp, functionName);
+        if (!proof) throw new Error("This app has no signing group yet.");
+        await api.executeGroupCall(appId, proof, functionName);
         await group.refresh();
         toast.success(`${label} confirmed`);
       } catch (err) {
@@ -147,7 +151,7 @@ export default function GroupPage({ params }: { params: Promise<{ appId: string 
       {/* Every action on this screen is an on-chain transaction from the
           developer's own account. When this session cannot make one, say why —
           a row of silently disabled buttons is the worst possible answer. */}
-      {!canSign ? <SigningSessionNotice what="change the group" /> : null}
+      {app?.group_address ? <TransportNotice transport={transport} what="change the group" /> : null}
 
       {group.data?.sync_error ? (
         <div className="mb-5">

@@ -308,6 +308,19 @@ export interface OnchainGroupState {
   pending_removals: OnchainRemoval[];
   issuers: OnchainIssuer[];
   auth_keys: string[];
+  /** Exact ERC-4361 domains the operators accept. Empty disables the scheme —
+   *  it never means "any domain". */
+  siwe_domains: string[];
+  /** The bound identity resolver, or null when none is. */
+  auth_resolver: OnchainAuthResolver | null;
+  /** A resolver change waiting out the group's timelock. */
+  pending_resolver: { execute_after: number; next: OnchainAuthResolver } | null;
+}
+
+export interface OnchainAuthResolver {
+  chain_id: number;
+  resolver: string;
+  require_canonical_subject: boolean;
 }
 
 export interface GroupView {

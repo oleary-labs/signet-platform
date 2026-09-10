@@ -362,6 +362,47 @@ export default function GroupPage({ params }: { params: Promise<{ appId: string 
             <Field label="Authorization keys">
               {onchain?.auth_keys.length ?? 0} registered
             </Field>
+            <Field label="Sign-In with Ethereum">
+              {onchain ? (
+                onchain.siwe_domains.length > 0 ? (
+                  <span className="mono">{onchain.siwe_domains.join(", ")}</span>
+                ) : (
+                  // An empty list reads as permissive and is the opposite: the
+                  // operators match the domain exactly, so nothing matches.
+                  <span className="text-muted">
+                    No domains — the scheme is disabled for this group
+                  </span>
+                )
+              ) : (
+                "—"
+              )}
+            </Field>
+            <Field label="Identity resolver">
+              {onchain?.auth_resolver ? (
+                <>
+                  <span className="mono">
+                    {shortAddress(onchain.auth_resolver.resolver, 10, 8)}
+                  </span>
+                  <span className="mt-0.5 block text-[12.5px] text-muted">
+                    on {chainName(onchain.auth_resolver.chain_id)}
+                    {onchain.auth_resolver.require_canonical_subject
+                      ? " · canonical subject required"
+                      : ""}
+                  </span>
+                </>
+              ) : onchain ? (
+                "None bound"
+              ) : (
+                "—"
+              )}
+              {onchain?.pending_resolver ? (
+                <span className="mt-1 block text-[12.5px] text-accent-600 dark:text-accent-400">
+                  Change queued — executable {formatDateTime(
+                    new Date(onchain.pending_resolver.execute_after * 1000).toISOString(),
+                  )}
+                </span>
+              ) : null}
+            </Field>
           </dl>
         </Section>
       </div>

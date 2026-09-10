@@ -185,17 +185,19 @@ func TestGroupStateSlicesMarshalAsArrays(t *testing.T) {
 		PendingRemovals: []RemovalRequest{},
 		Issuers:         []Issuer{},
 		AuthKeys:        []string{},
+		SiweDomains:     []string{},
 	}
 	encoded, err := json.Marshal(st)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if strings.Contains(string(encoded), "null") {
-		t.Fatalf("GroupState serialized a null collection: %s", encoded)
-	}
+	// AuthResolver and PendingResolver are pointers on purpose: null is how
+	// "nothing bound" is expressed, and it has to be distinguishable from a
+	// resolver deployed at the zero address. So the check is per collection
+	// rather than a blanket search for null.
 	for _, field := range []string{
 		`"active_nodes":[]`, `"pending_nodes":[]`, `"pending_removals":[]`,
-		`"issuers":[]`, `"auth_keys":[]`,
+		`"issuers":[]`, `"auth_keys":[]`, `"siwe_domains":[]`,
 	} {
 		if !strings.Contains(string(encoded), field) {
 			t.Errorf("expected %s in %s", field, encoded)

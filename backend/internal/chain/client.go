@@ -270,6 +270,33 @@ type GroupState struct {
 	PendingRemovals []RemovalRequest `json:"pending_removals"`
 	Issuers         []Issuer         `json:"issuers"`
 	AuthKeys        []string         `json:"auth_keys"`
+
+	// SiweDomains is the exact set of ERC-4361 domains the operators accept.
+	// Empty is meaningful and easy to misread: it disables the scheme, and
+	// never means "any domain".
+	SiweDomains []string `json:"siwe_domains"`
+
+	// AuthResolver is the on-chain identity resolver the group is bound to, or
+	// nil when none is. Its own chainId may differ from the group's.
+	AuthResolver *AuthResolver `json:"auth_resolver"`
+
+	// PendingResolver is a queued resolver change waiting out its timelock.
+	PendingResolver *PendingResolver `json:"pending_resolver"`
+}
+
+// AuthResolver mirrors ISignetGroup.AuthResolver. A zero resolver address is
+// the contract's sentinel for "not configured".
+type AuthResolver struct {
+	ChainID                 int64  `json:"chain_id"`
+	Resolver                string `json:"resolver"`
+	RequireCanonicalSubject bool   `json:"require_canonical_subject"`
+}
+
+// PendingResolver is a resolver binding queued behind the group's timelock.
+// executeAfter == 0 is the contract's sentinel for "nothing queued".
+type PendingResolver struct {
+	ExecuteAfter int64        `json:"execute_after"`
+	Next         AuthResolver `json:"next"`
 }
 
 // GroupState reads everything the console shows for a group. The calls are
@@ -290,6 +317,7 @@ func (c *Client) GroupState(ctx context.Context, group string) (*GroupState, err
 		PendingRemovals: []RemovalRequest{},
 		Issuers:         []Issuer{},
 		AuthKeys:        []string{},
+		SiweDomains:     []string{},
 	}
 
 	// view reads one view function and hands the return data to a decoder.
@@ -365,7 +393,50 @@ func (c *Client) GroupState(ctx context.Context, group string) (*GroupState, err
 	if st.AuthKeys, err = c.AuthKeys(ctx, addr); err != nil {
 		return nil, err
 	}
+
+	// The SIWE domain list and the resolver binding postdate the first group
+	// implementation, and a group behind an older beacon reverts on both. That
+	// is a missing feature, not a broken group, so it must not take the whole
+	// screen down — the fields stay unset and everything else still reads.
+	if d, err = view("siweDomains()"); err == nil {
+		if base, err := d.offsetAt(0); err == nil {
+			if domains, err := d.stringArrayAt(base); err == nil {
+				st.SiweDomains = domains
+			}
+		}
+	}
+	if d, err = view("getAuthResolver()"); err == nil {
+		if binding, err := decodeAuthResolver(d, 0); err == nil && binding.Resolver != zeroAddress {
+			st.AuthResolver = binding
+		}
+	}
+	if d, err = view("getPendingAuthResolver()"); err == nil {
+		if after, err := d.intAt(0); err == nil && after > 0 {
+			if next, err := decodeAuthResolver(d, wordSize); err == nil {
+				st.PendingResolver = &PendingResolver{ExecuteAfter: after, Next: *next}
+			}
+		}
+	}
 	return st, nil
+}
+
+const zeroAddress = "0x0000000000000000000000000000000000000000"
+
+// decodeAuthResolver reads the three static words of an AuthResolver at base.
+func decodeAuthResolver(d decoder, base int) (*AuthResolver, error) {
+	chainID, err := d.intAt(base)
+	if err != nil {
+		return nil, err
+	}
+	resolver, err := d.addressAt(base + wordSize)
+	if err != nil {
+		return nil, err
+	}
+	required, err := d.boolAt(base + 2*wordSize)
+	if err != nil {
+		return nil, err
+	}
+	return &AuthResolver{ChainID: chainID, Resolver: resolver, RequireCanonicalSubject: required}, nil
 }
 
 // RemovalRequest reads the timelock entry for a queued node removal.

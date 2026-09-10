@@ -3,6 +3,7 @@ package chain
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -612,4 +613,112 @@ func rightPad(b []byte) []byte {
 	out := make([]byte, n)
 	copy(out, b)
 	return out
+}
+
+// ─────────────────────────── Transactions ───────────────────────────
+//
+// The console can reach the chain two ways. A user operation goes out through
+// the bundler, which hands back a receipt, so the platform learns the outcome
+// by submitting it. A transaction sent from the developer's own wallet never
+// passes through here at all — the browser submits it and the platform is told
+// a hash afterwards. These two reads are how that hash becomes evidence rather
+// than a claim.
+
+// SentTransaction is the part of a transaction the platform needs in order to
+// decide whether it authorizes what the caller says it does.
+type SentTransaction struct {
+	From     string
+	To       string
+	Input    []byte
+	Value    *big.Int
+	Mined    bool
+	Success  bool
+	BlockNum uint64
+}
+
+type rpcTransaction struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Input string `json:"input"`
+	Value string `json:"value"`
+}
+
+type rpcReceipt struct {
+	Status      string `json:"status"`
+	BlockNumber string `json:"blockNumber"`
+}
+
+// Transaction reads a transaction and its receipt.
+//
+// Both, because either alone is insufficient: the transaction carries what was
+// called and by whom, and the receipt says whether it succeeded. A reverted
+// transaction is on-chain and readable and changed nothing, so recording
+// metadata off the back of one would leave the console asserting a state the
+// operators never saw.
+//
+// Mined is false rather than an error when the transaction is still pending —
+// the caller decides whether to wait, and "not yet" is not a failure.
+func (c *Client) Transaction(ctx context.Context, hash string) (*SentTransaction, error) {
+	if !c.Enabled() {
+		return nil, fmt.Errorf("chain reads are not configured")
+	}
+	hash = strings.TrimSpace(hash)
+	if !isTxHash(hash) {
+		return nil, fmt.Errorf("%q is not a transaction hash", hash)
+	}
+
+	var tx *rpcTransaction
+	if err := c.rpc(ctx, "eth_getTransactionByHash", []any{hash}, &tx); err != nil {
+		return nil, err
+	}
+	if tx == nil {
+		return nil, fmt.Errorf("no transaction with that hash on chain %d", c.chainID)
+	}
+
+	input, err := decodeHexBytes(tx.Input)
+	if err != nil {
+		return nil, fmt.Errorf("transaction input is not hex: %w", err)
+	}
+	out := &SentTransaction{
+		From:  strings.ToLower(tx.From),
+		To:    strings.ToLower(tx.To),
+		Input: input,
+		Value: hexToBig(tx.Value),
+	}
+
+	var receipt *rpcReceipt
+	if err := c.rpc(ctx, "eth_getTransactionReceipt", []any{hash}, &receipt); err != nil {
+		return nil, err
+	}
+	if receipt == nil {
+		return out, nil // still pending
+	}
+	out.Mined = true
+	out.Success = hexToBig(receipt.Status).Sign() == 1
+	out.BlockNum = hexToBig(receipt.BlockNumber).Uint64()
+	return out, nil
+}
+
+func isTxHash(s string) bool {
+	if len(s) != 66 || !strings.HasPrefix(s, "0x") {
+		return false
+	}
+	_, err := hex.DecodeString(s[2:])
+	return err == nil
+}
+
+func decodeHexBytes(s string) ([]byte, error) {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "0x")
+	if s == "" {
+		return nil, nil
+	}
+	return hex.DecodeString(s)
+}
+
+func hexToBig(s string) *big.Int {
+	n, ok := new(big.Int).SetString(strings.TrimPrefix(strings.TrimSpace(s), "0x"), 16)
+	if !ok {
+		return new(big.Int)
+	}
+	return n
 }

@@ -69,6 +69,17 @@ func (s *Server) smartWallet(r *http.Request, id *auth.Identity) (string, *struc
 	return *user.SmartAccountAddress, user, nil
 }
 
+// caller loads the user record without requiring a smart wallet.
+//
+// smartWallet refuses when there is none, which is right for a route that can
+// only sponsor a user operation. A route that also accepts a transaction the
+// developer sent themselves must not refuse that early: a Path B developer
+// signs in with a wallet, never provisions a Signet key, and is exactly who
+// the transaction path exists for.
+func (s *Server) caller(r *http.Request, id *auth.Identity) (*structs.User, error) {
+	return s.db.User(r.Context(), id.UserID)
+}
+
 // submitUserOp validates a signed operation against a route's intent and
 // forwards it to the bundler.
 //
@@ -120,6 +131,128 @@ func (s *Server) submitUserOpDecoded(
 	return receipt, decoded, true
 }
 
+// confirmTransaction turns a transaction hash into the same verdict a
+// submitted user operation produces, for a call the developer sent from their
+// own wallet.
+//
+// This is the path for a group whose manager is an EOA — every group created
+// out of band, and every group after its owner has taken it over. Those
+// contracts compare msg.sender to the manager, so a user operation from a
+// smart account would revert even where the whole AA stack exists; the
+// developer's own wallet is the correct caller, not a fallback.
+//
+// The platform is not in the path and cannot pre-authorize, so it verifies
+// instead: the transaction exists, it was mined, it succeeded, and it is the
+// call the route permits — sent by the account this caller controls. That last
+// check is what stops a stranger's transaction hash standing in for one of
+// theirs, since nothing prevents quoting a hash you did not send.
+func (s *Server) confirmTransaction(
+	w http.ResponseWriter, r *http.Request,
+	hash string, intent userop.Intent, user *structs.User,
+	check func(*userop.Decoded) error,
+) (*userop.Receipt, *userop.Decoded, bool) {
+	if s.chain == nil || !s.chain.Enabled() {
+		respond.Error(w, http.StatusServiceUnavailable,
+			"this deployment cannot read the chain, so a transaction cannot be confirmed")
+		return nil, nil, false
+	}
+	controlled := controlledAddresses(user)
+	if len(controlled) == 0 {
+		respond.Error(w, http.StatusBadRequest,
+			"your account has no wallet address, so a transaction cannot be attributed to you")
+		return nil, nil, false
+	}
+
+	tx, err := s.chain.Transaction(r.Context(), hash)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "could not read that transaction: "+err.Error())
+		return nil, nil, false
+	}
+	if !tx.Mined {
+		// Not an error. The caller is expected to wait for the receipt before
+		// telling us, so this means they did not — retrying is the fix.
+		respond.Error(w, http.StatusConflict,
+			"that transaction has not been mined yet — wait for it to confirm and try again")
+		return nil, nil, false
+	}
+	if !tx.Success {
+		respond.Error(w, http.StatusBadRequest,
+			"that transaction reverted, so nothing changed on-chain")
+		return nil, nil, false
+	}
+
+	decoded, err := userop.ValidateTransaction(tx.From, tx.To, tx.Input, tx.Value, intent, controlled)
+	if err != nil {
+		respond.Error(w, http.StatusForbidden, err.Error())
+		return nil, nil, false
+	}
+	if check != nil {
+		if err := check(decoded); err != nil {
+			respond.Error(w, http.StatusForbidden, err.Error())
+			return nil, nil, false
+		}
+	}
+
+	return &userop.Receipt{TransactionHash: hash, Success: true}, decoded, true
+}
+
+// controlledAddresses lists the on-chain identities a user can act as: the
+// smart wallet derived from their Signet key, and the EOA they signed in with.
+// Path A creates groups from the first and Path B from the second, and a group
+// can move between them with transferManager, so both are legitimate.
+func controlledAddresses(user *structs.User) []string {
+	out := make([]string, 0, 2)
+	if user == nil {
+		return out
+	}
+	if user.SmartAccountAddress != nil && *user.SmartAccountAddress != "" {
+		out = append(out, *user.SmartAccountAddress)
+	}
+	if user.AccountAddress != nil && *user.AccountAddress != "" {
+		out = append(out, *user.AccountAddress)
+	}
+	return out
+}
+
+// applyOnchainChange completes a state change by whichever route the caller
+// used, so a handler expresses what it authorizes once rather than twice.
+//
+// A user operation is sponsored and relayed, so the platform authorizes it
+// before it runs. A wallet transaction has already run at the developer's own
+// expense, so the platform confirms it afterwards. The intent is the same
+// either way; only the moment of checking moves.
+func (s *Server) applyOnchainChange(
+	w http.ResponseWriter, r *http.Request,
+	op *userop.Packed, txHash string,
+	intent userop.Intent, user *structs.User,
+	check func(*userop.Decoded) error,
+) (*userop.Receipt, *userop.Decoded, bool) {
+	txHash = strings.TrimSpace(txHash)
+	switch {
+	case op != nil && txHash != "":
+		respond.Error(w, http.StatusBadRequest,
+			"supply either a signed operation or a transaction hash, not both")
+		return nil, nil, false
+	case txHash != "":
+		return s.confirmTransaction(w, r, txHash, intent, user, check)
+	case op != nil:
+		sender := ""
+		if user != nil && user.SmartAccountAddress != nil {
+			sender = *user.SmartAccountAddress
+		}
+		if sender == "" {
+			respond.Error(w, http.StatusBadRequest,
+				"your account has no smart wallet — send the change from your own wallet and supply its transaction hash instead")
+			return nil, nil, false
+		}
+		return s.submitUserOpDecoded(w, r, op, intent, sender, check)
+	default:
+		respond.Error(w, http.StatusBadRequest,
+			"this change needs either a signed operation or the hash of a transaction you sent")
+		return nil, nil, false
+	}
+}
+
 // handleGroupExecute submits a management call against the caller's own group.
 //
 // One route covers membership, reshare, and resolver changes because they are
@@ -133,6 +266,7 @@ func (s *Server) handleGroupExecute(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		UserOp *userop.Packed `json:"user_op"`
+		TxHash string         `json:"transaction_hash"`
 		Action string         `json:"action"`
 	}
 	if err := respond.Decode(r, &req); err != nil {
@@ -149,13 +283,17 @@ func (s *Server) handleGroupExecute(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "this app has no signing group yet")
 		return
 	}
-	sender, _, err := s.smartWallet(r, id)
+	user, err := s.caller(r, id)
+
 	if err != nil {
-		respond.Error(w, http.StatusBadRequest, err.Error())
+
+		writeStoreError(w, r, err, "could not load your account")
+
 		return
+
 	}
 
-	receipt, ok := s.submitUserOp(w, r, req.UserOp, userop.Intent{
+	receipt, decoded, ok := s.applyOnchainChange(w, r, req.UserOp, req.TxHash, userop.Intent{
 		Action:    "group management",
 		Dest:      *app.GroupAddress,
 		Selectors: groupManagementSelectors,
@@ -164,7 +302,7 @@ func (s *Server) handleGroupExecute(w http.ResponseWriter, r *http.Request) {
 		// for; without this, promoting an app to production would be a way to
 		// keep free gas while leaving our operators behind.
 		RefusePaymaster: app.Environment != "development",
-	}, sender)
+	}, user, nil)
 	if !ok {
 		return
 	}
@@ -186,7 +324,7 @@ func (s *Server) handleGroupExecute(w http.ResponseWriter, r *http.Request) {
 	s.db.Audit(r.Context(), store.AuditRecord{
 		OrgID: &access.OrgID, AppID: &access.AppID, ActorID: &id.UserID, ActorLabel: id.Subject,
 		Action: "group." + strings.ToLower(action), Target: *app.GroupAddress,
-		Metadata: map[string]any{"transaction_hash": receipt.TransactionHash, "sender": sender},
+		Metadata: map[string]any{"transaction_hash": receipt.TransactionHash, "sender": decoded.Sender},
 		IP:       r.RemoteAddr,
 	})
 

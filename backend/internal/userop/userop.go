@@ -156,16 +156,58 @@ func Validate(op *Packed, intent Intent, expectedSender string) (*Decoded, error
 			"%s is not sponsored, but the operation carries paymaster data — rebuild it without a paymaster",
 			intent.Action)
 	}
+	return checkCall(op.Sender, dest, value, inner, intent)
+}
+
+// ValidateTransaction checks a plain transaction sent from the caller's own
+// wallet against the same intent a user operation would face.
+//
+// The difference from Validate is only in shape. A user operation wraps the
+// call in execute(address,uint256,bytes) because a smart account has to be told
+// what to do; a transaction from an EOA carries the destination in `to` and the
+// selector in the first four bytes of its input. What the route is willing to
+// authorize is identical, so the rules live in checkCall and both paths reach
+// them.
+//
+// `from` matters as much as the call does. Nothing stops someone quoting a
+// transaction hash they did not send, so a route that recorded metadata on the
+// strength of a hash alone would let a stranger's transaction stand in for the
+// caller's.
+//
+// It checks only that the sender is an account this caller controls, not that
+// it is the group's manager. The contract already decided that: these calls are
+// onlyManager, so a receipt saying the transaction succeeded is proof the
+// sender was the manager at the time it ran. Re-deriving the rule here would
+// duplicate it, and a duplicate can disagree — with the chain, or with a
+// manager transfer that landed in between.
+//
+// RefusePaymaster is not consulted: the sender paid.
+func ValidateTransaction(from, to string, input []byte, value *big.Int, intent Intent, allowedSenders []string) (*Decoded, error) {
+	if !anyAddressMatches(from, allowedSenders) {
+		return nil, fmt.Errorf(
+			"the transaction was sent by %s, which is not an account you control — quote a transaction you sent yourself",
+			from)
+	}
+	if value == nil {
+		value = new(big.Int)
+	}
+	return checkCall(from, to, value, input, intent)
+}
+
+// checkCall holds every rule that is about the call itself rather than how it
+// reached the chain, so a user operation and a transaction cannot drift into
+// authorizing different things.
+func checkCall(sender, dest string, value *big.Int, inner []byte, intent Intent) (*Decoded, error) {
 	if value.Sign() != 0 {
 		return nil, fmt.Errorf(
-			"the operation moves %s wei; the platform sponsors configuration calls, never transfers", value)
+			"the call moves %s wei; the platform records configuration calls, never transfers", value)
 	}
 	if !strings.EqualFold(dest, strings.TrimSpace(intent.Dest)) {
 		return nil, fmt.Errorf(
-			"the operation calls %s, but %s acts on %s", dest, intent.Action, intent.Dest)
+			"the call is to %s, but %s acts on %s", dest, intent.Action, intent.Dest)
 	}
 	if len(inner) < 4 {
-		return nil, fmt.Errorf("the inner call has no selector")
+		return nil, fmt.Errorf("the call has no selector")
 	}
 	selector := hex.EncodeToString(inner[:4])
 
@@ -185,12 +227,12 @@ func Validate(op *Packed, intent Intent, expectedSender string) (*Decoded, error
 		// twice, in a log and in a test.
 		sort.Strings(allowed)
 		return nil, fmt.Errorf(
-			"the operation calls selector 0x%s, but %s allows only: %s",
+			"the call uses selector 0x%s, but %s allows only: %s",
 			selector, intent.Action, strings.Join(allowed, ", "))
 	}
 
 	return &Decoded{
-		Sender:   op.Sender,
+		Sender:   sender,
 		Dest:     dest,
 		Value:    value,
 		Selector: selector,
@@ -393,3 +435,20 @@ func hexBytes(s string) ([]byte, error) {
 }
 
 func hexUint(v int64) string { return fmt.Sprintf("0x%x", v) }
+
+// anyAddressMatches reports whether addr is one of the candidates, ignoring
+// case and blank entries. A user has up to two addresses — a smart wallet and
+// the EOA they signed in with — and which one sends depends on how the group
+// was created, not on anything the console decides.
+func anyAddressMatches(addr string, candidates []string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return false
+	}
+	for _, c := range candidates {
+		if c = strings.TrimSpace(c); c != "" && strings.EqualFold(addr, c) {
+			return true
+		}
+	}
+	return false
+}

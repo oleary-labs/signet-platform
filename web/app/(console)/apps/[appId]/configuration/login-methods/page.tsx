@@ -15,7 +15,7 @@ import {
 import { SettingsForm } from "@/components/console/SettingsForm";
 import { api } from "@/lib/api";
 import { useAction, useQuery } from "@/lib/hooks";
-import { signGroupCall } from "@/lib/onchain";
+import { chooseTransport, submitGroupCall, useCanSignOnchain , type Transport } from "@/lib/onchain";
 import { USEROP_STAGE_COPY, type UserOpStage } from "@/lib/userop";
 import { useSession } from "@/providers/SessionProvider";
 import { useToast } from "@/providers/ToastProvider";
@@ -62,6 +62,11 @@ export default function LoginMethodsPage({ params }: { params: Promise<{ appId: 
   const { user, network } = useSession();
   const app = useQuery(() => api.app(appId), [appId]);
   const issuers = useQuery(() => api.issuers(appId), [appId]);
+  // The manager decides which key signs, so the group has to be read even on a
+  // screen that is otherwise about the platform's own records.
+  const groupView = useQuery(() => api.group(appId), [appId]);
+  const canSign = useCanSignOnchain(user);
+  const transport = chooseTransport(user, groupView.data?.onchain?.manager, canSign);
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -72,9 +77,10 @@ export default function LoginMethodsPage({ params }: { params: Promise<{ appId: 
     setBusy(issuer.id);
     try {
       const { keccak256, toBytes } = await import("viem");
-      const userOp =
+      const proof =
         user && network
-          ? await signGroupCall({
+          ? await submitGroupCall({
+              transport,
               network,
               user,
               groupAddress: app.data?.group_address,
@@ -83,7 +89,7 @@ export default function LoginMethodsPage({ params }: { params: Promise<{ appId: 
               sponsored: app.data?.environment === "development",
             })
           : undefined;
-      const result = await api.removeIssuer(appId, issuer.id, userOp);
+      const result = await api.removeIssuer(appId, issuer.id, proof);
       await issuers.refresh();
       toast.success(
         "Removed",
@@ -235,6 +241,7 @@ export default function LoginMethodsPage({ params }: { params: Promise<{ appId: 
         appId={appId}
         groupAddress={app.data?.group_address ?? null}
         sponsored={app.data?.environment === "development"}
+        transport={transport}
         onDone={() => {
           setAddOpen(false);
           issuers.refresh();
@@ -250,6 +257,7 @@ function AddIssuerModal({
   appId,
   groupAddress,
   sponsored,
+  transport,
   onDone,
 }: {
   open: boolean;
@@ -257,6 +265,7 @@ function AddIssuerModal({
   appId: string;
   groupAddress: string | null;
   sponsored: boolean;
+  transport: Transport;
   onDone: () => void;
 }) {
   const toast = useToast();
@@ -275,9 +284,10 @@ function AddIssuerModal({
     try {
       // Before the group exists there is nothing to call: the issuer is
       // written into createGroup instead, so it goes on-chain either way.
-      const userOp =
+      const proof =
         user && network
-          ? await signGroupCall({
+          ? await submitGroupCall({
+              transport,
               network,
               user,
               groupAddress,
@@ -291,7 +301,7 @@ function AddIssuerModal({
       const result = await api.saveIssuer(appId, {
         issuer: trimmed,
         client_ids: ids,
-        user_op: userOp,
+        user_op: proof,
       });
       toast.success(
         "Issuer added",

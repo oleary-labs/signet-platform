@@ -373,6 +373,7 @@ func (s *Server) handleDeployGroup(w http.ResponseWriter, r *http.Request) {
 		Threshold       int            `json:"threshold"`
 		RemovalDelaySec int64          `json:"removal_delay_seconds"`
 		UserOp          *userop.Packed `json:"user_op"`
+		TxHash          string         `json:"transaction_hash"`
 	}
 	if err := respond.Decode(r, &req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
@@ -439,18 +440,22 @@ func (s *Server) handleDeployGroup(w http.ResponseWriter, r *http.Request) {
 		threshold = (len(nodes) / 2) + 1
 	}
 
-	sender, _, err := s.smartWallet(r, id)
+	user, err := s.caller(r, id)
+
 	if err != nil {
-		respond.Error(w, http.StatusBadRequest, err.Error())
+
+		writeStoreError(w, r, err, "could not load your account")
+
 		return
+
 	}
 
-	receipt, ok := s.submitUserOp(w, r, req.UserOp, userop.Intent{
+	receipt, decoded, ok := s.applyOnchainChange(w, r, req.UserOp, req.TxHash, userop.Intent{
 		Action:          "creating a signing group",
 		Dest:            s.cfg.FactoryAddress,
 		Selectors:       map[string]string{"createGroup": selCreateGroup},
 		RefusePaymaster: !sponsored,
-	}, sender)
+	}, user, nil)
 	if !ok {
 		return
 	}
@@ -478,7 +483,7 @@ func (s *Server) handleDeployGroup(w http.ResponseWriter, r *http.Request) {
 		Action: "app.group_deployed", Target: groupAddr,
 		Metadata: map[string]any{
 			"sponsored":        sponsored,
-			"manager":          sender,
+			"manager":          decoded.Sender,
 			"threshold":        threshold,
 			"operators":        len(nodes),
 			"transaction_hash": receipt.TransactionHash,
@@ -491,7 +496,7 @@ func (s *Server) handleDeployGroup(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, map[string]any{
 		"app":              updated,
 		"group_address":    groupAddr,
-		"manager":          sender,
+		"manager":          decoded.Sender,
 		"transaction_hash": receipt.TransactionHash,
 	})
 }

@@ -392,6 +392,7 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 		Label     string         `json:"label"`
 		PublicKey string         `json:"public_key"`
 		UserOp    *userop.Packed `json:"user_op"`
+		TxHash    string         `json:"transaction_hash"`
 	}
 	if err := respond.Decode(r, &req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
@@ -434,17 +435,21 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 		}
 		status, txHash := "pending", ""
 		if app.GroupAddress != nil {
-			sender, _, err := s.smartWallet(r, id)
+			user, err := s.caller(r, id)
+
 			if err != nil {
-				respond.Error(w, http.StatusBadRequest, err.Error())
+
+				writeStoreError(w, r, err, "could not load your account")
+
 				return
+
 			}
-			receipt, _, ok := s.submitUserOpDecoded(w, r, req.UserOp, userop.Intent{
+			receipt, _, ok := s.applyOnchainChange(w, r, req.UserOp, req.TxHash, userop.Intent{
 				Action:          "adding an authorization key",
 				Dest:            *app.GroupAddress,
 				Selectors:       map[string]string{"addAuthKey": selAddAuthKey},
 				RefusePaymaster: app.Environment != "development",
-			}, sender, func(d *userop.Decoded) error {
+			}, user, func(d *userop.Decoded) error {
 				got, ok := d.BytesArg(0)
 				if !ok {
 					return fmt.Errorf("addAuthKey is missing its public key")
@@ -491,6 +496,7 @@ func (s *Server) handleRevokeCredential(w http.ResponseWriter, r *http.Request) 
 	}
 	var req struct {
 		UserOp *userop.Packed `json:"user_op"`
+		TxHash string         `json:"transaction_hash"`
 	}
 	// An app secret is revoked in this database alone, so a bodyless DELETE is
 	// the normal case.
@@ -530,17 +536,21 @@ func (s *Server) handleRevokeCredential(w http.ResponseWriter, r *http.Request) 
 					"this key has no recorded hash, so it cannot be removed on-chain from here")
 				return
 			}
-			sender, _, err := s.smartWallet(r, id)
+			user, err := s.caller(r, id)
+
 			if err != nil {
-				respond.Error(w, http.StatusBadRequest, err.Error())
+
+				writeStoreError(w, r, err, "could not load your account")
+
 				return
+
 			}
-			receipt, _, ok := s.submitUserOpDecoded(w, r, req.UserOp, userop.Intent{
+			receipt, _, ok := s.applyOnchainChange(w, r, req.UserOp, req.TxHash, userop.Intent{
 				Action:          "removing an authorization key",
 				Dest:            *app.GroupAddress,
 				Selectors:       map[string]string{"removeAuthKey": selRemoveAuthKey},
 				RefusePaymaster: app.Environment != "development",
-			}, sender, func(d *userop.Decoded) error {
+			}, user, func(d *userop.Decoded) error {
 				word, ok := d.Word(0)
 				if !ok {
 					return fmt.Errorf("removeAuthKey is missing its key hash")
@@ -601,6 +611,7 @@ func (s *Server) handleUpsertIssuer(w http.ResponseWriter, r *http.Request) {
 		Provider  string         `json:"provider"`
 		Label     string         `json:"label"`
 		UserOp    *userop.Packed `json:"user_op"`
+		TxHash    string         `json:"transaction_hash"`
 	}
 	if err := respond.Decode(r, &req); err != nil {
 		respond.Error(w, http.StatusBadRequest, "invalid request body")
@@ -654,17 +665,21 @@ func (s *Server) handleUpsertIssuer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if needsChain {
-		sender, _, err := s.smartWallet(r, id)
+		user, err := s.caller(r, id)
+
 		if err != nil {
-			respond.Error(w, http.StatusBadRequest, err.Error())
+
+			writeStoreError(w, r, err, "could not load your account")
+
 			return
+
 		}
-		receipt, ok := s.submitUserOp(w, r, req.UserOp, userop.Intent{
+		receipt, _, ok := s.applyOnchainChange(w, r, req.UserOp, req.TxHash, userop.Intent{
 			Action:          "adding a login method",
 			Dest:            *app.GroupAddress,
 			Selectors:       map[string]string{"addIssuer": selAddIssuer},
 			RefusePaymaster: app.Environment != "development",
-		}, sender)
+		}, user, nil)
 		if !ok {
 			return
 		}
@@ -700,6 +715,7 @@ func (s *Server) handleRemoveIssuer(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		UserOp *userop.Packed `json:"user_op"`
+		TxHash string         `json:"transaction_hash"`
 	}
 	// DELETE with no body is fine for an app that has no group yet.
 	_ = respond.Decode(r, &req)
@@ -729,17 +745,21 @@ func (s *Server) handleRemoveIssuer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		sender, _, err := s.smartWallet(r, id)
+		user, err := s.caller(r, id)
+
 		if err != nil {
-			respond.Error(w, http.StatusBadRequest, err.Error())
+
+			writeStoreError(w, r, err, "could not load your account")
+
 			return
+
 		}
-		receipt, decoded, ok := s.submitUserOpDecoded(w, r, req.UserOp, userop.Intent{
+		receipt, decoded, ok := s.applyOnchainChange(w, r, req.UserOp, req.TxHash, userop.Intent{
 			Action:          "removing a login method",
 			Dest:            *app.GroupAddress,
 			Selectors:       map[string]string{"removeIssuer": selRemoveIssuer},
 			RefusePaymaster: app.Environment != "development",
-		}, sender, func(d *userop.Decoded) error {
+		}, user, func(d *userop.Decoded) error {
 			// removeIssuer takes the issuer hash. Checking it keeps the two
 			// records in step: without this, deleting issuer A here while the
 			// operation removed issuer B on-chain leaves both wrong.

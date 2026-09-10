@@ -32,6 +32,7 @@ import type {
   WebhookDelivery,
 } from "./types";
 import type { SignedUserOp } from "./userop";
+import type { OnchainProof } from "./onchain";
 
 // 8088, not 8080: signetd binds 8080 in a local devnet, so the platform API
 // sits above it. A wrong default here fails as requests that quietly go to a
@@ -227,19 +228,19 @@ export const api = {
     post<Credential>(`/v1/apps/${appId}/credentials`, body),
   /** Revoking an authorization key removes it on-chain too, so a signed
    *  operation is required whenever the key is actually registered. */
-  revokeCredential: (appId: string, credentialId: string, user_op?: SignedUserOp) =>
+  revokeCredential: (appId: string, credentialId: string, proof?: OnchainProof) =>
     del<{ status: string; transaction_hash: string }>(
       `/v1/apps/${appId}/credentials/${credentialId}`,
-      user_op ? { user_op } : undefined,
+      proof,
     ),
 
   issuers: (appId: string) => get<Issuer[]>(`/v1/apps/${appId}/issuers`),
   saveIssuer: (appId: string, body: Record<string, unknown>) =>
     put<{ issuer: Issuer; transaction_hash: string }>(`/v1/apps/${appId}/issuers`, body),
-  removeIssuer: (appId: string, issuerId: string, user_op?: SignedUserOp) =>
+  removeIssuer: (appId: string, issuerId: string, proof?: OnchainProof) =>
     del<{ status: string; transaction_hash: string }>(
       `/v1/apps/${appId}/issuers/${issuerId}`,
-      user_op ? { user_op } : undefined,
+      proof,
     ),
 
   group: (appId: string) => get<GroupView>(`/v1/apps/${appId}/group`),
@@ -256,10 +257,10 @@ export const api = {
     }>(`/v1/apps/${appId}/group/deploy`, body),
 
   /** Membership, reshare, and auth-resolver changes on an existing group. */
-  executeGroupCall: (appId: string, user_op: SignedUserOp, action: string) =>
+  executeGroupCall: (appId: string, proof: OnchainProof, action: string) =>
     post<{ app: App; nodes: GroupNode[]; transaction_hash: string; sync_error?: string }>(
       `/v1/apps/${appId}/group/execute`,
-      { user_op, action },
+      { ...proof, action },
     ),
 
   attachGroup: (appId: string, group_address: string, group_public_key?: string) =>

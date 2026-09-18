@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -394,6 +395,35 @@ func (s *Server) handleDeployGroup(w http.ResponseWriter, r *http.Request) {
 	// through this route — it just pays for itself, which is checked below
 	// rather than assumed.
 	sponsored := app.Environment == "development"
+
+	// Being a development app earns sponsorship; it does not entitle anyone to
+	// it. Sign-in is open to any Google account, so on mainnet the question
+	// "who may spend our ETH" has to be answered here — the bundler's API key
+	// cannot answer it, because every request through the console presents the
+	// platform's own key and all of them look alike to the bundler.
+	if sponsored && s.cfg.SponsorGroupCreation {
+		if !s.cfg.IsSponsoredSubject(id.Subject) {
+			respond.Error(w, http.StatusForbidden,
+				"sponsored group creation is invitation-only while the network is in alpha. "+
+					"Create the group from your own wallet and link it, or ask for access.")
+			return
+		}
+		if limit := s.cfg.MaxSponsoredGroupsPerOrg; limit > 0 {
+			used, err := s.db.SponsoredGroupCount(r.Context(), access.OrgID)
+			if err != nil {
+				respond.Fail(w, r, http.StatusInternalServerError,
+					"could not check this organization's sponsored group allowance", err)
+				return
+			}
+			if used >= limit {
+				respond.Error(w, http.StatusForbidden, fmt.Sprintf(
+					"this organization has used its %d sponsored groups. "+
+						"Further groups can be created from your own wallet, which pays its own gas.",
+					limit))
+				return
+			}
+		}
+	}
 
 	nodes := req.Nodes
 	if sponsored {

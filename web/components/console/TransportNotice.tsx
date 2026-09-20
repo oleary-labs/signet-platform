@@ -3,7 +3,7 @@
 import { Callout, InfoTip } from "@/components/ui";
 import { SigningSessionNotice } from "./SigningSessionNotice";
 import { shortAddress } from "@/lib/format";
-import type { Transport } from "@/lib/onchain";
+import { useSigningSessionMinutesLeft, type Transport } from "@/lib/onchain";
 
 /**
  * Says which key is about to sign, before it does.
@@ -21,16 +21,28 @@ import type { Transport } from "@/lib/onchain";
  * one.
  */
 export function TransportNotice({ transport, what }: { transport: Transport; what: string }) {
+  const minutesLeft = useSigningSessionMinutesLeft();
   if (transport.kind === "userop") {
     return (
       <Callout
-        tone="accent"
+        tone={minutesLeft !== null && minutesLeft <= 10 ? "warn" : "accent"}
         title={
           <>
             Signed by your Signet key
+            {minutesLeft !== null ? (
+              <> · session expires in {minutesLeft} min</>
+            ) : null}
             <InfoTip>
               A quorum of your operators signs the operation and the platform relays it, so
               nothing opens and no gas leaves your wallet.
+              {minutesLeft !== null && minutesLeft <= 10 ? (
+                <>
+                  {" "}
+                  The session lasts as long as the Google credential it was proved from and cannot
+                  be renewed without signing in again — worth doing now rather than partway through
+                  something.
+                </>
+              ) : null}
             </InfoTip>
           </>
         }

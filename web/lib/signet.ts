@@ -1,6 +1,7 @@
 "use client";
 
 import { API_BASE } from "./api";
+import { clearSigningSession } from "./session-key";
 import type { NetworkConfig } from "./types";
 
 /**
@@ -183,9 +184,25 @@ export async function signWithBootstrapGroup(opts: {
 
   const text = await res.text();
   if (!res.ok) {
-    // Naming the node matters here: "unauthorized" from a node that never had
-    // the session and "unauthorized" from a node that rejected it read
-    // identically otherwise.
+    // A 401 here is almost always an expired session, and the node cannot say
+    // so: a session lives as long as the Google ID token it was proved from,
+    // expired entries are reaped in the background, and the reap means the
+    // lookup reports "session not found" rather than "expired". The node then
+    // sanitises even that to "unauthorized" so key ids cannot be enumerated.
+    // So three layers each drop detail, and what reaches here is a word.
+    //
+    // Clearing the session is what makes the next screen honest — every
+    // consumer reads loadSigningSession, so leaving a dead one in place would
+    // keep offering actions that cannot work.
+    if (res.status === 401) {
+      clearSigningSession();
+      throw new Error(
+        "Your signing session has expired — they last about an hour, for as long as the " +
+          "Google credential they were proved from. Sign in again to continue.",
+      );
+    }
+    // Naming the node matters for everything else: a node that is unreachable
+    // and a node that refused read identically otherwise.
     throw new Error(`${hostOf(node)} could not sign the challenge: ${text}`);
   }
 

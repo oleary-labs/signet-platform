@@ -2,19 +2,22 @@ package config
 
 import "testing"
 
-// Sponsorship spends real ETH and sign-in is open to any Google account, so an
-// unset list must sponsor nobody. A spending gate that defaults to permitting
-// spending is not a gate — and this is the case a deploy would silently get
-// wrong, because the variable is easy to forget and the failure is a bill.
-func TestSponsorshipIsClosedByDefault(t *testing.T) {
+// An unset list means everyone, and the deploy route reads it that way — it
+// only consults IsSponsoredSubject when the list is non-empty. So this records
+// the shape the caller depends on: an empty list matches nobody, which is why
+// the caller must check length first rather than treating a false as a refusal.
+func TestIsSponsoredSubjectMatchesNothingWhenUnset(t *testing.T) {
 	empty := &Config{}
+	if len(empty.SponsoredSubjects) != 0 {
+		t.Fatal("expected an empty list")
+	}
 	for _, subject := range []string{
 		"signet:02b285a5aa8819d8a0cbdbf4f67f01bef320ea78369eae6dcdab06f6658ddf8f73",
 		"eth:0xdcb876ac74297655a73f04dc7a5039175dd15e10",
 		"",
 	} {
 		if empty.IsSponsoredSubject(subject) {
-			t.Errorf("an unset list sponsored %q", subject)
+			t.Errorf("an unset list matched %q", subject)
 		}
 	}
 }
@@ -56,13 +59,14 @@ func TestStaffAndSponsorshipDoNotImplyEachOther(t *testing.T) {
 	}
 }
 
-// The default ceiling exists so a listed developer cannot loop, and so a
-// mistaken entry costs a bounded amount.
+// Sponsorship is open, so the per-person ceiling is the only thing standing
+// between one account and the whole paymaster deposit. It must be finite by
+// default: this is the variable a deploy forgets, and the symptom is a bill.
 func TestDefaultSponsoredGroupCeilingIsFinite(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	t.Setenv("SESSION_SECRET", "x")
 	cfg := Load()
-	if cfg.MaxSponsoredGroupsPerOrg <= 0 {
-		t.Fatalf("default ceiling is %d — unbounded by default", cfg.MaxSponsoredGroupsPerOrg)
+	if cfg.MaxSponsoredGroupsPerSubject <= 0 {
+		t.Fatalf("default ceiling is %d — unbounded by default", cfg.MaxSponsoredGroupsPerSubject)
 	}
 }

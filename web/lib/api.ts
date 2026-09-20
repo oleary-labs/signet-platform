@@ -33,6 +33,7 @@ import type {
 } from "./types";
 import type { SignedUserOp } from "./userop";
 import type { OnchainProof } from "./onchain";
+import type { StaffOverview } from "./types";
 
 // 8088, not 8080: signetd binds 8080 in a local devnet, so the platform API
 // sits above it. A wrong default here fails as requests that quietly go to a
@@ -147,6 +148,8 @@ export const api = {
   config: () => get<NetworkConfig>("/v1/config"),
   status: () => get<NetworkStatus>("/v1/status"),
   webhookEvents: () => get<{ events: string[] }>("/v1/webhooks/events"),
+  staffOverview: () => get<StaffOverview>("/v1/staff/overview"),
+
   nodeOperators: (params?: Record<string, string | boolean | undefined>) =>
     get<NodeOperator[]>(`/v1/marketplace/nodes${queryString(params)}`),
   nodeOperator: (address: string) =>

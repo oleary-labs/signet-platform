@@ -113,23 +113,29 @@ type Config struct {
 	// identity the signature actually established.
 	StaffSubjects []string
 
-	// Subjects the platform will pay to deploy a group for.
+	// Subjects the platform will pay to deploy a group for. **Empty means
+	// everyone**, which is the intended posture while the network is courting
+	// developers: someone signing in and deploying a group is the point, and an
+	// invitation wall costs adoption to prevent a cost that is small per head.
+	// Set it to make sponsorship invitation-only.
 	//
-	// Sponsorship spends real ETH on mainnet, and the console's sign-in is open
-	// to any Google account — so without a list, anyone who finds the URL can
-	// draw on the paymaster. An empty list sponsors nobody. That is deliberate:
-	// a spending gate whose default is to permit spending is not a gate.
-	//
-	// The bundler's API key is a different control and does not replace this.
-	// It stops someone reaching the paymaster *around* the platform; every
-	// request through the console carries the platform's own key, so the key
-	// cannot distinguish one signed-in developer from another.
+	// The bundler's API key is a different control and cannot replace this. It
+	// stops someone reaching the paymaster *around* the platform; every request
+	// through the console carries the platform's own key, so the key cannot
+	// distinguish one signed-in developer from another.
 	SponsoredSubjects []string
 
-	// Hard ceiling on sponsored groups per organization, whatever the list
-	// says. Protects against a listed developer looping, and bounds the damage
-	// if a subject is added by mistake. 0 means no ceiling.
-	MaxSponsoredGroupsPerOrg int
+	// Ceiling on sponsored groups per person, applied whether or not the list
+	// above is set. 0 means no ceiling.
+	//
+	// Per subject rather than per organization, because creating an
+	// organization is unrestricted — an org-scoped ceiling is bypassed by
+	// making another org. A subject is established by the signature that opened
+	// the session, so exceeding it means obtaining another credential.
+	//
+	// This is a bound on one person, not on the whole; the shared limit is the
+	// paymaster's deposit, which is the thing to keep modest and alarmed.
+	MaxSponsoredGroupsPerSubject int
 
 	// Node health probing interval in seconds; 0 disables the prober.
 	HealthProbeSecs int
@@ -188,9 +194,9 @@ func Load() *Config {
 
 		IngestKey: os.Getenv("INGEST_KEY"),
 
-		StaffSubjects:            normalizeSubjects(splitList(os.Getenv("STAFF_SUBJECTS"))),
-		SponsoredSubjects:        normalizeSubjects(splitList(os.Getenv("SPONSORED_SUBJECTS"))),
-		MaxSponsoredGroupsPerOrg: getInt("MAX_SPONSORED_GROUPS_PER_ORG", 3),
+		StaffSubjects:                normalizeSubjects(splitList(os.Getenv("STAFF_SUBJECTS"))),
+		SponsoredSubjects:            normalizeSubjects(splitList(os.Getenv("SPONSORED_SUBJECTS"))),
+		MaxSponsoredGroupsPerSubject: getInt("MAX_SPONSORED_GROUPS_PER_SUBJECT", 3),
 
 		HealthProbeSecs: getInt("HEALTH_PROBE_SECONDS", 120),
 		ChainSyncSecs:   getInt("CHAIN_SYNC_SECONDS", 60),

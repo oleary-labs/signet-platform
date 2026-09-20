@@ -397,29 +397,37 @@ func (s *Server) handleDeployGroup(w http.ResponseWriter, r *http.Request) {
 	sponsored := app.Environment == "development"
 
 	// Being a development app earns sponsorship; it does not entitle anyone to
-	// it. Sign-in is open to any Google account, so on mainnet the question
-	// "who may spend our ETH" has to be answered here — the bundler's API key
-	// cannot answer it, because every request through the console presents the
-	// platform's own key and all of them look alike to the bundler.
+	// an unlimited amount of it.
+	//
+	// Open by default, and deliberately so: someone who signs in and deploys a
+	// group is the outcome this exists for, and gating that on an invitation
+	// costs real adoption to prevent a cost that is small per head. What is not
+	// open is the total — SPONSORED_SUBJECTS narrows it to a list when needed,
+	// and the per-person ceiling applies either way.
+	//
+	// The ceiling is the part that matters, because the real limit is the
+	// paymaster's own deposit and that is shared by everyone. Note also what
+	// cannot do this job: the bundler's API key stops someone reaching the
+	// paymaster around the platform, but every request through the console
+	// presents the platform's key, so all developers look alike to it.
 	if sponsored && s.cfg.SponsorGroupCreation {
-		if !s.cfg.IsSponsoredSubject(id.Subject) {
+		if len(s.cfg.SponsoredSubjects) > 0 && !s.cfg.IsSponsoredSubject(id.Subject) {
 			respond.Error(w, http.StatusForbidden,
-				"sponsored group creation is invitation-only while the network is in alpha. "+
+				"sponsored group creation is invitation-only on this deployment. "+
 					"Create the group from your own wallet and link it, or ask for access.")
 			return
 		}
-		if limit := s.cfg.MaxSponsoredGroupsPerOrg; limit > 0 {
-			used, err := s.db.SponsoredGroupCount(r.Context(), access.OrgID)
+		if limit := s.cfg.MaxSponsoredGroupsPerSubject; limit > 0 {
+			used, err := s.db.SponsoredGroupCount(r.Context(), id.UserID)
 			if err != nil {
 				respond.Fail(w, r, http.StatusInternalServerError,
-					"could not check this organization's sponsored group allowance", err)
+					"could not check your sponsored group allowance", err)
 				return
 			}
 			if used >= limit {
 				respond.Error(w, http.StatusForbidden, fmt.Sprintf(
-					"this organization has used its %d sponsored groups. "+
-						"Further groups can be created from your own wallet, which pays its own gas.",
-					limit))
+					"you have used your %d sponsored groups. Further groups can be created "+
+						"from your own wallet, which pays its own gas.", limit))
 				return
 			}
 		}

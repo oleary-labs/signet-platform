@@ -5,13 +5,14 @@ import { usePathname } from "next/navigation";
 import type { App, Organization } from "@/lib/types";
 import { Logo } from "@/components/Logo";
 import { AppSwitcher } from "./AppSwitcher";
-import { appNav, isActive, orgNav } from "./nav";
+import { appNav, isActive, orgNav, staffNav } from "./nav";
 
 export function Sidebar({
   apps,
   activeApp,
   organizations,
   activeOrg,
+  isStaff,
   onSelectOrg,
   onNavigate,
 }: {
@@ -19,6 +20,7 @@ export function Sidebar({
   activeApp: App | null;
   organizations: Organization[];
   activeOrg: Organization | null;
+  isStaff: boolean;
   onSelectOrg: (orgId: string) => void;
   onNavigate?: () => void;
 }) {
@@ -26,6 +28,10 @@ export function Sidebar({
   const groups = [
     ...(activeApp ? appNav(activeApp.id) : []),
     ...(activeOrg ? orgNav(activeOrg.id) : []),
+    // Last, and only for staff. It is a platform role rather than an
+    // organization one, so it does not belong among an app's sections — and the
+    // route is enforced by requireStaff regardless of whether this renders.
+    ...(isStaff ? staffNav() : []),
   ];
 
   return (

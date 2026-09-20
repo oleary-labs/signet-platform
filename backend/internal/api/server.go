@@ -227,6 +227,7 @@ func (s *Server) Router() http.Handler {
 		// Platform staff curate the marketplace; they are not org admins.
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireStaff)
+			r.Get("/v1/staff/overview", s.handleStaffOverview)
 			r.Post("/v1/marketplace/nodes", s.handleUpsertNodeOperator)
 			r.Patch("/v1/marketplace/nodes/{address}", s.handleUpsertNodeOperator)
 		})

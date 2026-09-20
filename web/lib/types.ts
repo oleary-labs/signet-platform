@@ -515,3 +515,61 @@ export interface NodeCertificate {
   node_urls: string[];
   identity: string;
 }
+
+// ── Staff overview ───────────────────────────────────────────────────────────
+// The one cross-tenant read in the API. Mirrors backend/internal/store/staff.go.
+
+export interface StaffUserRow {
+  subject: string;
+  subject_kind: "signet" | "siwe";
+  display_name: string;
+  email: string | null;
+  is_staff: boolean;
+  orgs: number;
+  apps: number;
+  /** Groups this person has had the platform pay to deploy — the same count the
+   *  deploy route enforces its per-subject ceiling against. */
+  sponsored_groups: number;
+  created_at: string;
+  last_seen_at: string | null;
+}
+
+export interface StaffAppRow {
+  name: string;
+  org_name: string;
+  creator_subject: string | null;
+  environment: Environment;
+  status: AppStatus;
+  chain_id: number;
+  group_address: string | null;
+  threshold: number | null;
+  node_count: number | null;
+  sponsored: boolean;
+  deployed_at: string | null;
+  created_at: string;
+}
+
+export interface StaffOverview {
+  totals: {
+    users: number;
+    signet_users: number;
+    wallet_users: number;
+    organizations: number;
+    apps: number;
+    deployed_groups: number;
+    sponsored_groups: number;
+    new_users_24h: number;
+    new_groups_24h: number;
+  };
+  users: StaffUserRow[];
+  apps: StaffAppRow[];
+  /** What the deploy route is enforcing, so the page states it rather than
+   *  leaving staff to infer it from the environment. */
+  sponsorship: {
+    enabled: boolean;
+    invitation_only: boolean;
+    invited_count: number;
+    max_per_subject: number;
+    paymaster_address: string;
+  };
+}

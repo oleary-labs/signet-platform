@@ -17,8 +17,21 @@ export async function POST(request: NextRequest) {
   const body = await request.text();
   const path = request.headers.get("x-bundler-path") ?? "";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // Every path, not just the prover.
+  //
+  // This once keyed only /v1/prove, because that was the only authenticated
+  // endpoint. The bundler now authenticates its JSON-RPC surface too, and the
+  // omission surfaced as "eth_estimateUserOperationGas failed: invalid or
+  // missing API key" three steps into building a UserOperation — after the
+  // developer had watched a progress bar, and pointing at the bundler rather
+  // than at the caller that never presented a credential.
+  //
+  // Attaching it unconditionally is right for a server-side proxy: it is the
+  // platform's own key, the browser never sees it, and the alternative is a
+  // per-path allowlist that will be wrong again the next time the bundler adds
+  // authentication somewhere.
   const apiKey = process.env.PROVER_API_KEY;
-  if (apiKey && path === "/v1/prove") headers["X-API-Key"] = apiKey;
+  if (apiKey) headers["X-API-Key"] = apiKey;
 
   try {
     const res = await fetch(`${bundlerUrl.replace(/\/$/, "")}${path}`, {

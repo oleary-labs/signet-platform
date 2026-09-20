@@ -113,6 +113,30 @@ type Config struct {
 	// identity the signature actually established.
 	StaffSubjects []string
 
+	// Subjects the platform will pay to deploy a group for. **Empty means
+	// everyone**, which is the intended posture while the network is courting
+	// developers: someone signing in and deploying a group is the point, and an
+	// invitation wall costs adoption to prevent a cost that is small per head.
+	// Set it to make sponsorship invitation-only.
+	//
+	// The bundler's API key is a different control and cannot replace this. It
+	// stops someone reaching the paymaster *around* the platform; every request
+	// through the console carries the platform's own key, so the key cannot
+	// distinguish one signed-in developer from another.
+	SponsoredSubjects []string
+
+	// Ceiling on sponsored groups per person, applied whether or not the list
+	// above is set. 0 means no ceiling.
+	//
+	// Per subject rather than per organization, because creating an
+	// organization is unrestricted — an org-scoped ceiling is bypassed by
+	// making another org. A subject is established by the signature that opened
+	// the session, so exceeding it means obtaining another credential.
+	//
+	// This is a bound on one person, not on the whole; the shared limit is the
+	// paymaster's deposit, which is the thing to keep modest and alarmed.
+	MaxSponsoredGroupsPerSubject int
+
 	// Node health probing interval in seconds; 0 disables the prober.
 	HealthProbeSecs int
 	// Chain sync interval in seconds; 0 disables the chain indexer.
@@ -170,7 +194,9 @@ func Load() *Config {
 
 		IngestKey: os.Getenv("INGEST_KEY"),
 
-		StaffSubjects: normalizeSubjects(splitList(os.Getenv("STAFF_SUBJECTS"))),
+		StaffSubjects:                normalizeSubjects(splitList(os.Getenv("STAFF_SUBJECTS"))),
+		SponsoredSubjects:            normalizeSubjects(splitList(os.Getenv("SPONSORED_SUBJECTS"))),
+		MaxSponsoredGroupsPerSubject: getInt("MAX_SPONSORED_GROUPS_PER_SUBJECT", 3),
 
 		HealthProbeSecs: getInt("HEALTH_PROBE_SECONDS", 120),
 		ChainSyncSecs:   getInt("CHAIN_SYNC_SECONDS", 60),
@@ -285,8 +311,21 @@ func normalizeHexAddress(s string) (string, bool) {
 
 // IsStaffSubject reports whether a sign-in subject was configured as staff.
 func (c *Config) IsStaffSubject(subject string) bool {
+	return subjectListed(subject, c.StaffSubjects)
+}
+
+// IsSponsoredSubject reports whether the platform will pay to deploy a group
+// for this sign-in subject.
+func (c *Config) IsSponsoredSubject(subject string) bool {
+	return subjectListed(subject, c.SponsoredSubjects)
+}
+
+func subjectListed(subject string, list []string) bool {
 	subject = strings.ToLower(strings.TrimSpace(subject))
-	for _, s := range c.StaffSubjects {
+	if subject == "" {
+		return false
+	}
+	for _, s := range list {
 		if s == subject {
 			return true
 		}

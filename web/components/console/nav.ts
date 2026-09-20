@@ -75,6 +75,18 @@ export function orgNav(orgId: string): NavGroup[] {
   ];
 }
 
+// Staff is a platform role, not an organization one, so it sits outside the app
+// and org groups. Gated on user.is_staff at the call site — the route is
+// enforced server-side by requireStaff, and hiding it is presentation.
+export function staffNav(): NavGroup[] {
+  return [
+    {
+      title: "Platform",
+      items: [{ href: "/staff", label: "Overview", exact: true }],
+    },
+  ];
+}
+
 export function isActive(pathname: string, item: NavItem): boolean {
   if (item.exact) return pathname === item.href;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);

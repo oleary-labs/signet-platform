@@ -150,6 +150,8 @@ export async function signWithBootstrapGroup(opts: {
    *  the identity rather than from the claims, so it has to be signed over
    *  here too or the request reads as a signature failure. */
   identity?: string;
+  /** The node this session was opened against. */
+  nodeUrl?: string;
 }): Promise<string> {
   const { signSignRequest } = await import("@oleary-labs/signet-sdk/request");
 
@@ -163,7 +165,10 @@ export async function signWithBootstrapGroup(opts: {
     opts.identity,
   );
 
-  const node = opts.network.bootstrap_nodes[0];
+  // The node the session was opened against, so signing asks the one that
+  // already holds it. Falls back to the first configured node for callers that
+  // do not track it.
+  const node = opts.nodeUrl ?? opts.network.bootstrap_nodes[0];
   if (!node) throw new Error("This deployment has no bootstrap nodes configured.");
 
   const res = await fetch(`${API_BASE}/v1/node/bootstrap-proxy`, {
@@ -177,7 +182,12 @@ export async function signWithBootstrapGroup(opts: {
   });
 
   const text = await res.text();
-  if (!res.ok) throw new Error(`The group could not sign the challenge: ${text}`);
+  if (!res.ok) {
+    // Naming the node matters here: "unauthorized" from a node that never had
+    // the session and "unauthorized" from a node that rejected it read
+    // identically otherwise.
+    throw new Error(`${hostOf(node)} could not sign the challenge: ${text}`);
+  }
 
   const body = JSON.parse(text) as {
     ethereum_signature?: string;
@@ -246,4 +256,13 @@ export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/** Just the host, so an error naming a node stays readable. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }

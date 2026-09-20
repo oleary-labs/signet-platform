@@ -184,6 +184,8 @@ export async function buildSignedUserOp(req: BuildUserOpRequest): Promise<Signed
     claims: session.claims as never,
     digestHex: opHash,
     identity: session.identity,
+    // The node that opened this session, not whichever is configured first.
+    nodeUrl: session.nodeUrl,
   })) as `0x${string}`;
 
   return serialize(op);

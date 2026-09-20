@@ -23,6 +23,7 @@ const PUB_KEY = "signet_session_pub";
 const CLAIMS_KEY = "signet_session_claims";
 const GROUP_KEY = "signet_group_public_key";
 const IDENTITY_KEY = "signet_session_identity";
+const NODE_KEY = "signet_session_node";
 
 export interface SigningSession {
   keypair: SessionKeypair;
@@ -38,6 +39,16 @@ export interface SigningSession {
    * signature, so it is carried with the session rather than recomputed.
    */
   identity?: string;
+  /**
+   * The node this session was opened against.
+   *
+   * /v1/auth broadcasts, so every node learns the session — but the one that
+   * received it holds it immediately and the others after a moment. Recording
+   * it means later signing asks that node rather than whichever happens to be
+   * first in the configured list, which is what made sign-in fail with
+   * "unauthorized" while a perfectly good session existed elsewhere.
+   */
+  nodeUrl?: string;
 }
 
 export function storeSigningSession(s: SigningSession) {
@@ -47,6 +58,7 @@ export function storeSigningSession(s: SigningSession) {
     sessionStorage.setItem(CLAIMS_KEY, JSON.stringify(s.claims));
     sessionStorage.setItem(GROUP_KEY, s.groupPublicKey);
     if (s.identity) sessionStorage.setItem(IDENTITY_KEY, s.identity);
+    if (s.nodeUrl) sessionStorage.setItem(NODE_KEY, s.nodeUrl);
     else sessionStorage.removeItem(IDENTITY_KEY);
   } catch {
     // Private-mode browsers throw. The console degrades to read-only for
@@ -66,6 +78,7 @@ export function loadSigningSession(): SigningSession | null {
       claims: JSON.parse(claims) as IdTokenClaims,
       groupPublicKey: group,
       identity: sessionStorage.getItem(IDENTITY_KEY) ?? undefined,
+      nodeUrl: sessionStorage.getItem(NODE_KEY) ?? undefined,
     };
   } catch {
     return null;
@@ -74,7 +87,7 @@ export function loadSigningSession(): SigningSession | null {
 
 export function clearSigningSession() {
   try {
-    [PRIV_KEY, PUB_KEY, CLAIMS_KEY, GROUP_KEY, IDENTITY_KEY].forEach((k) =>
+    [PRIV_KEY, PUB_KEY, CLAIMS_KEY, GROUP_KEY, IDENTITY_KEY, NODE_KEY].forEach((k) =>
       sessionStorage.removeItem(k),
     );
   } catch {

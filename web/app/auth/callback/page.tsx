@@ -80,11 +80,32 @@ function Callback() {
 
     setStage("registering");
     const proxy = `${API_BASE}/v1/node/bootstrap-proxy`;
+
+    // One node opens the session, and the same one serves the rest of sign-in.
+    //
+    // /v1/auth broadcasts: the node that receives it tells the others, and each
+    // re-verifies independently rather than trusting the initiator. So asking
+    // every node is redundant work, and authenticateWithBootstrap's shape makes
+    // it worse than redundant — it fans out and returns on the first success,
+    // reporting the rest to console.warn. A node that *rejected* the session
+    // therefore looked the same as one that accepted it, and keygen and signing
+    // would go on to pick bootstrap_nodes[0] regardless. When that was the node
+    // that failed, sign-in died at the last step with "unauthorized" and a
+    // perfectly good session on the other two.
+    //
+    // Pinning removes the propagation window as well: the node being asked to
+    // sign is the one the session was created on, rather than one waiting for a
+    // broadcast to arrive. This is how authkey-session, delegate and
+    // resolver-session already work; bootstrap is the oldest module and the
+    // only one that fanned out.
+    const sessionNode = network.bootstrap_nodes[0];
+    if (!sessionNode) throw new Error("This deployment has no bootstrap nodes configured.");
+
     const { authenticateWithBootstrap } = await import("@oleary-labs/signet-sdk/bootstrap");
     await authenticateWithBootstrap(
       {
         groupId: network.bootstrap_group,
-        nodeUrls: network.bootstrap_nodes,
+        nodeUrls: [sessionNode],
         proxyEndpoint: proxy,
       },
       proof,
@@ -98,7 +119,11 @@ function Callback() {
     const key = await keygen(
       {
         groupId: network.bootstrap_group,
-        nodeUrls: network.bootstrap_nodes,
+        // The session's node first. keygen treats this list as candidate
+        // initiators rather than participants — the DKG runs across the whole
+        // group whichever one starts it — so the others stay as transport
+        // failover for a node that stops answering mid-sign-in.
+        nodeUrls: [sessionNode, ...network.bootstrap_nodes.filter((n) => n !== sessionNode)],
         proxyEndpoint: proxy,
       },
       keypair,
@@ -115,6 +140,7 @@ function Callback() {
       sessionKeypair: keypair,
       claims,
       digestHex: challenge.digest!,
+      nodeUrl: sessionNode,
     });
 
     setStage("verifying");
@@ -131,7 +157,7 @@ function Callback() {
     // the group to sign on-chain actions without re-proving the credential on
     // every click. See lib/session-key.ts for what that does and does not
     // authorize.
-    storeSigningSession({ keypair, claims, groupPublicKey: key.groupPublicKey });
+    storeSigningSession({ keypair, claims, groupPublicKey: key.groupPublicKey, nodeUrl: sessionNode });
 
     forgetNonce();
     onSignedIn(result.session, result.token);

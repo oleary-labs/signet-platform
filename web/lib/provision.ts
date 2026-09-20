@@ -117,9 +117,13 @@ export async function provisionSignetKey(
   // The identity is the namespace the key lives in, and the nodes derive the
   // key id from it — so it must be the same string the certificate carried.
   const claims = { iss: "", sub: "", exp: cert.certificate.expiry, aud: "", azp: "" };
+  const sessionNode = cert.node_urls[0];
   const key = await keygen(
     {
-      nodeUrls: cert.node_urls,
+      // The node the certificate session was opened against, first. The rest
+      // stay as transport failover — keygen treats the list as candidate
+      // initiators, not participants.
+      nodeUrls: [sessionNode, ...cert.node_urls.filter((n) => n !== sessionNode)],
       groupId: cert.group_id,
       proxyEndpoint: `${API_BASE}/v1/node/bootstrap-proxy`,
     },
@@ -143,6 +147,7 @@ export async function provisionSignetKey(
     claims: claims as never,
     groupPublicKey: key.groupPublicKey,
     identity: cert.identity,
+    nodeUrl: sessionNode,
   });
 
   onStage?.("recording");

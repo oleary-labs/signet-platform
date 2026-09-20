@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { signetGroupAbi } from "./abi";
-import { loadSigningSession } from "./session-key";
+import { loadSigningSession, signingSessionExpiresAt } from "./session-key";
 import { buildSignedUserOp, type SignedUserOp, type UserOpStage } from "./userop";
 import type { NetworkConfig, User } from "./types";
 
@@ -306,4 +306,37 @@ export async function submitGroupCall(opts: {
     onStage: opts.onStage,
   });
   return userOp ? { user_op: userOp } : undefined;
+}
+
+
+/**
+ * Minutes left on this tab's signing session, or null when there is none.
+ *
+ * Read after mount for the same reason useCanSignOnchain is: sessionStorage
+ * does not exist on the server, and computing it during render would disagree
+ * with itself on hydration.
+ *
+ * Shown so a developer can see a session running out *before* starting
+ * something long. Group creation is a proof, an estimate, paymaster data,
+ * threshold signing and a submission — discovering the session died is much
+ * cheaper at the start than four steps in.
+ */
+export function useSigningSessionMinutesLeft(): number | null {
+  const [minutes, setMinutes] = useState<number | null>(null);
+
+  useEffect(() => {
+    const read = () => {
+      const session = loadSigningSession();
+      if (!session) return setMinutes(null);
+      const expiresAt = signingSessionExpiresAt(session.claims);
+      if (!expiresAt) return setMinutes(null);
+      setMinutes(Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60_000)));
+    };
+    read();
+    // A minute is the resolution being displayed; anything finer is noise.
+    const id = window.setInterval(read, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return minutes;
 }

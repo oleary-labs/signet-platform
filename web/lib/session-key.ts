@@ -66,6 +66,37 @@ export function storeSigningSession(s: SigningSession) {
   }
 }
 
+/**
+ * How long before a session's real expiry we stop handing it out.
+ *
+ * A node session expires at the JWT's own `exp`, and group creation is several
+ * round trips — a proof, gas estimation, paymaster data, threshold signing.
+ * Handing out a session with thirty seconds left means discovering it is dead
+ * partway through, which is the worst place to find out.
+ */
+const EXPIRY_SKEW_SECONDS = 120;
+
+/** When this session stops being usable, or null if it carries no expiry. */
+export function signingSessionExpiresAt(claims: IdTokenClaims): Date | null {
+  return typeof claims.exp === "number" && claims.exp > 0 ? new Date(claims.exp * 1000) : null;
+}
+
+/**
+ * The session for this tab, or null when there is none *or it has expired*.
+ *
+ * Expiry is checked here rather than at each call site because everything
+ * downstream already treats null as "no session" and says something sensible —
+ * useCanSignOnchain, chooseTransport, TransportNotice. Left unchecked, a dead
+ * session looks alive right up until a node answers 401, and it does not even
+ * answer accurately: expired entries are reaped in the background, so the node
+ * reports "session not found" and the failure reads as though sign-in never
+ * happened. It did; it was an hour ago.
+ *
+ * A node session lives exactly as long as the Google ID token it was proved
+ * from — about an hour — and cannot be renewed from here. The JWT is used for
+ * the proof and deliberately not kept, so there is nothing to re-prove with:
+ * recovering means signing in again, not refreshing.
+ */
 export function loadSigningSession(): SigningSession | null {
   try {
     const priv = sessionStorage.getItem(PRIV_KEY);
@@ -73,6 +104,16 @@ export function loadSigningSession(): SigningSession | null {
     const claims = sessionStorage.getItem(CLAIMS_KEY);
     const group = sessionStorage.getItem(GROUP_KEY);
     if (!priv || !pub || !claims || !group) return null;
+
+    const parsed = JSON.parse(claims) as IdTokenClaims;
+    const expiresAt = signingSessionExpiresAt(parsed);
+    if (expiresAt && Date.now() >= expiresAt.getTime() - EXPIRY_SKEW_SECONDS * 1_000) {
+      // Clear it rather than just refusing: keeping a dead session around means
+      // every later read pays the same check and something eventually uses one
+      // that slipped past it.
+      clearSigningSession();
+      return null;
+    }
     return {
       keypair: { privateKey: fromHex(priv), publicKeyHex: pub },
       claims: JSON.parse(claims) as IdTokenClaims,

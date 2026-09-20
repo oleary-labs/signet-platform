@@ -18,7 +18,7 @@ import { useSession } from "@/providers/SessionProvider";
  * switcher is populated on every screen without each one re-requesting it.
  */
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
-  const { status, organizations, activeOrg, setActiveOrg } = useSession();
+  const { status, organizations, activeOrg, setActiveOrg, user } = useSession();
   const router = useRouter();
   const pathname = usePathname();
   const params = useParams<{ appId?: string }>();
@@ -68,6 +68,7 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
           activeApp={activeApp}
           organizations={organizations}
           activeOrg={activeOrg}
+              isStaff={!!user?.is_staff}
           onSelectOrg={setActiveOrg}
         />
       </div>
@@ -81,6 +82,7 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
               activeApp={activeApp}
               organizations={organizations}
               activeOrg={activeOrg}
+              isStaff={!!user?.is_staff}
               onSelectOrg={setActiveOrg}
               onNavigate={() => setMobileNav(false)}
             />

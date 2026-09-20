@@ -578,3 +578,27 @@ func lowerAll(in []string) []string {
 func (s *Store) TouchApp(ctx context.Context, appID uuid.UUID) {
 	_, _ = s.pool.Exec(ctx, `UPDATE apps SET updated_at=now() WHERE id=$1`, appID)
 }
+
+// SponsoredGroupCount counts the groups the platform has already paid to deploy
+// for one person.
+//
+// Per user, not per organization. Creating an organization is unrestricted —
+// handleCreateOrg validates a name and nothing else — so an organization-scoped
+// ceiling is bypassed by clicking "new org" again. A subject is established by
+// the signature that opened the session, so raising the count means obtaining
+// another credential rather than another row.
+//
+// Counted from apps rather than a ledger because a deployed group is the thing
+// that cost money: the console creates development apps, and development
+// deployment is what sponsorship covers. Attributed by creator, which is who
+// the platform paid for. Archived apps still count — archiving does not stop
+// the group, and refunding the allowance would make the ceiling resettable at
+// will.
+func (s *Store) SponsoredGroupCount(ctx context.Context, userID uuid.UUID) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM apps
+		 WHERE created_by = $1 AND group_address IS NOT NULL AND environment = 'development'`,
+		userID).Scan(&n)
+	return n, err
+}
